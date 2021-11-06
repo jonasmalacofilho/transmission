@@ -6,27 +6,27 @@ configure_file(
 )
 
 set(PROJECT_FILES
-  announcer.cc
   announcer-http.cc
   announcer-udp.cc
+  announcer.cc
   bandwidth.cc
   bitfield.cc
   blocklist.cc
   cache.cc
   clients.cc
   completion.cc
-  crypto.cc
-  crypto-utils.cc
   crypto-utils-ccrypto.cc
   crypto-utils-cyassl.cc
   crypto-utils-fallback.cc
   crypto-utils-openssl.cc
   crypto-utils-polarssl.cc
+  crypto-utils.cc
+  crypto.cc
   error.cc
   fdlimit.cc
-  file.cc
   file-posix.cc
   file-win32.cc
+  file.cc
   handshake.cc
   inout.cc
   log.cc
@@ -38,40 +38,41 @@ set(PROJECT_FILES
   peer-io.cc
   peer-mgr.cc
   peer-msgs.cc
-  platform.cc
   platform-quota.cc
+  platform.cc
   port-forwarding.cc
   ptrarray.cc
   quark.cc
   resume.cc
-  rpcimpl.cc
   rpc-server.cc
-  session.cc
+  rpcimpl.cc
   session-id.cc
+  session.cc
+  stats.cc
   subprocess-posix.cc
   subprocess-win32.cc
-  stats.cc
-  torrent.cc
   torrent-ctor.cc
   torrent-magnet.cc
-  tr-dht.cc
-  trevent.cc
+  torrent-metainfo.cc
+  torrent.cc
   tr-assert.cc
+  tr-dht.cc
   tr-getopt.cc
   tr-lpd.cc
   tr-udp.cc
   tr-utp.cc
+  trevent.cc
   upnp.cc
   utils.cc
   variant-benc.cc
-  variant.cc
   variant-json.cc
+  variant.cc
   verify.cc
-  watchdir.cc
   watchdir-generic.cc
   watchdir-inotify.cc
   watchdir-kqueue.cc
   watchdir-win32.cc
+  watchdir.cc
   web.cc
   webseed.cc
 )
@@ -118,14 +119,15 @@ else()
 endif()
 
 set(${PROJECT_NAME}_PUBLIC_HEADERS
-    error.h
     error-types.h
+    error.h
     file.h
     log.h
     makemeta.h
     quark.h
     rpcimpl.h
     session-id.h
+    torrent-metainfo.h
     tr-assert.h
     tr-getopt.h
     tr-macros.h
@@ -138,6 +140,7 @@ set(${PROJECT_NAME}_PUBLIC_HEADERS
 )
 
 set(${PROJECT_NAME}_PRIVATE_HEADERS
+    ConvertUTF.h
     announcer-common.h
     announcer.h
     bandwidth.h
@@ -146,9 +149,8 @@ set(${PROJECT_NAME}_PRIVATE_HEADERS
     cache.h
     clients.h
     completion.h
-    ConvertUTF.h
-    crypto.h
     crypto-utils.h
+    crypto.h
     fdlimit.h
     handshake.h
     history.h
@@ -163,22 +165,23 @@ set(${PROJECT_NAME}_PRIVATE_HEADERS
     peer-mgr.h
     peer-msgs.h
     peer-socket.h
-    platform.h
     platform-quota.h
+    platform.h
     port-forwarding.h
     ptrarray.h
     resume.h
     rpc-server.h
     session.h
-    subprocess.h
     stats.h
-    torrent.h
+    subprocess.h
     torrent-magnet.h
+    torrent-metainfo-private.h
+    torrent.h
     tr-dht.h
-    trevent.h
     tr-lpd.h
     tr-udp.h
     tr-utp.h
+    trevent.h
     upnp.h
     variant-common.h
     verify.h

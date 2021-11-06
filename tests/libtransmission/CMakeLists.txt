@@ -22,6 +22,7 @@ add_executable(libtransmission-test
     subprocess-test-script.cmd
     subprocess-test.cc
     test-fixtures.h
+    torrent-metainfo-test.cc
     utils-test.cc
     variant-test.cc
     watchdir-test.cc)
