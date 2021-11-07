@@ -12,16 +12,15 @@
 #error only libtransmission should #include this header.
 #endif
 
-#include <optional>
 #include <map>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "transmission.h"
 
-#include "torrent-metainfo.h"
 #include "quark.h"
+#include "torrent-metainfo.h"
+#include "tr-assert.h"
 
 struct tr_torrent_metainfo
 {
@@ -57,9 +56,9 @@ struct tr_torrent_metainfo
         std::string path;
         bool is_renamed = false;
 
-        file_t(std::string const& path_in, uint64_t size_in, bool is_renamed)
+        file_t(std::string path_in, uint64_t size_in, bool is_renamed)
             : size{ size_in }
-            , path{ path_in }
+            , path{ std::move(path_in) }
             , is_renamed{ is_renamed }
         {
         }
@@ -90,7 +89,45 @@ struct tr_torrent_metainfo
 
     uint64_t size;
     uint32_t piece_size;
-    tr_piece_index_t piece_count;
+    tr_piece_index_t n_pieces;
 
     bool is_private;
+};
+
+struct tr_block_metainfo
+{
+    uint64_t total_size = 0;
+    uint64_t piece_size = 0;
+    uint64_t n_pieces = 0;
+
+    tr_block_index_t n_blocks = 0;
+    tr_block_index_t n_blocks_in_piece = 0;
+    tr_block_index_t n_blocks_in_final_piece = 0;
+    uint32_t block_size = 0;
+    uint32_t final_block_size = 0;
+    uint32_t final_piece_size = 0;
+
+    tr_block_metainfo(uint64_t total_size_in, uint64_t piece_size_in);
+
+    tr_block_metainfo(tr_torrent_metainfo const& tm)
+        : tr_block_metainfo(tm.size, tm.piece_size)
+    {
+    }
+
+    constexpr tr_piece_index_t blockPiece(tr_block_index_t block) const
+    {
+        return block / n_blocks_in_piece;
+    }
+
+    constexpr uint32_t countBytesInPiece(tr_piece_index_t piece) const
+    {
+        // how many bytes are in this piece?
+        return piece + 1 == n_pieces ? final_piece_size : piece_size;
+    }
+
+    constexpr uint32_t countBytesInBlock(tr_block_index_t block)
+    {
+        // how many bytes are in this block?
+        return block + 1 == n_blocks ? final_block_size : block_size;
+    }
 };

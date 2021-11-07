@@ -348,7 +348,7 @@ void parseWebseeds(tr_torrent_metainfo& setme, tr_variant* meta)
 
 tr_piece_index_t getBytePiece(tr_torrent_metainfo const& tm, uint64_t byte_offset)
 {
-    return byte_offset == tm.size ? tm.piece_count - 1 // handle 0-byte files at the end of a torrent
+    return byte_offset == tm.size ? tm.n_pieces - 1 // handle 0-byte files at the end of a torrent
                                     :
                                     byte_offset / tm.piece_size;
 }
@@ -459,7 +459,7 @@ char const* parseImpl(tr_torrent_metainfo& setme, tr_variant* meta)
     if (tr_variantDictFindStrView(info_dict, TR_KEY_pieces, &sv) && (std::size(sv) % SHA_DIGEST_LENGTH == 0))
     {
         auto const n = std::size(sv) / sizeof(tr_sha1_digest_t);
-        setme.piece_count = n;
+        setme.n_pieces = n;
         setme.pieces.resize(n);
         std::copy_n(std::data(sv), std::size(sv), reinterpret_cast<char*>(std::data(setme.pieces)));
     }
@@ -497,8 +497,8 @@ char const* parseImpl(tr_torrent_metainfo& setme, tr_variant* meta)
     }
 
     // do the size and piece size match up?
-    auto const expected_piece_count = (setme.size + (setme.piece_size - 1)) / setme.piece_size;
-    if (uint64_t(setme.piece_count) != expected_piece_count)
+    auto const expected_n_pieces = (setme.size + (setme.piece_size - 1)) / setme.piece_size;
+    if (uint64_t(setme.n_pieces) != expected_n_pieces)
     {
         return "piece count and file sizes do not match";
     }
@@ -507,6 +507,27 @@ char const* parseImpl(tr_torrent_metainfo& setme, tr_variant* meta)
     parseWebseeds(setme, meta);
 
     return nullptr;
+}
+
+// Decide on a block size. Constraints:
+// (1) most clients decline requests over 16 KiB
+// (2) pieceSize must be a multiple of block size
+static constexpr uint32_t calculateBlockSize(uint32_t piece_size)
+{
+    uint32_t b = piece_size;
+
+    auto constexpr MaxBlockSize = uint32_t{ 1024 * 16 };
+    while (b > MaxBlockSize)
+    {
+        b /= 2U;
+    }
+
+    if (b == 0 || piece_size % b != 0) // not cleanly divisible
+    {
+        return 0;
+    }
+
+    return b;
 }
 
 } // namespace
@@ -548,6 +569,54 @@ std::string tr_torrent_metainfo::magnet() const
     }
 
     return s;
+}
+
+tr_block_metainfo::tr_block_metainfo(uint64_t total_size_in, uint64_t piece_size_in)
+    : total_size{ total_size_in }
+    , piece_size{ piece_size_in }
+    , n_pieces{ (total_size + piece_size - 1) / piece_size }
+    , block_size{ calculateBlockSize(piece_size) }
+{
+    if (piece_size == 0 || block_size == 0)
+    {
+        return;
+    }
+
+    auto remainder = total_size % piece_size;
+    final_piece_size = remainder ? remainder : piece_size;
+
+    remainder = total_size % block_size;
+    final_block_size = remainder ? remainder : block_size;
+
+    if (block_size != 0)
+    {
+        n_blocks = (total_size + block_size - 1) / block_size;
+        n_blocks_in_piece = piece_size / block_size;
+        n_blocks_in_final_piece = (final_piece_size + block_size - 1) / block_size;
+    }
+
+#ifdef TR_ENABLE_ASSERTS
+    // check our work
+    if (block_size != 0)
+    {
+        TR_ASSERT(piece_size % block_size == 0);
+    }
+
+    uint64_t t = n_pieces - 1;
+    t *= piece_size;
+    t += final_piece_size;
+    TR_ASSERT(t == total_size);
+
+    t = n_blocks - 1;
+    t *= block_size;
+    t += final_block_size;
+    TR_ASSERT(t == total_size);
+
+    t = n_pieces - 1;
+    t *= n_blocks_in_piece;
+    t += n_blocks_in_final_piece;
+    TR_ASSERT(t == n_blocks);
+#endif
 }
 
 //// Public API
@@ -614,7 +683,7 @@ tr_torrent_metainfo_info* tr_torrentMetainfoGet(tr_torrent_metainfo const* tm, t
     setme->info_hash_string = tm->info_hash_string;
     setme->is_private = tm->is_private;
     setme->name = tm->name.c_str();
-    setme->piece_count = tm->piece_count;
+    setme->n_pieces = tm->n_pieces;
     setme->size = tm->size;
     setme->source = tm->source.c_str();
     setme->time_created = tm->time_created;

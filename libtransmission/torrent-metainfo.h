@@ -41,7 +41,7 @@ struct tr_torrent_metainfo_info
     tr_sha1_digest_string_t info_hash_string;
 
     uint64_t size;
-    tr_piece_index_t piece_count;
+    tr_piece_index_t n_pieces;
 
     bool is_private;
 };

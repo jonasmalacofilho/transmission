@@ -115,7 +115,7 @@ TEST(TorrentMetainfoTest, SingleFile)
     EXPECT_EQ(info_hash, info.info_hash);
     EXPECT_EQ(true, info.is_private);
     EXPECT_EQ("hello.txt"sv, info.name);
-    EXPECT_EQ(1, info.piece_count);
+    EXPECT_EQ(1, info.n_pieces);
     EXPECT_EQ(1636238372, info.time_created);
     EXPECT_EQ(6, info.size);
 
@@ -150,7 +150,7 @@ TEST(TorrentMetainfoTest, CreationDateIsOptional)
     EXPECT_EQ("8634b6345eceddb0c605af1ec6108ba3008127de"sv, std::data(info.info_hash_string));
     EXPECT_EQ("hello.txt"sv, info.name);
     EXPECT_EQ(0, info.time_created);
-    EXPECT_EQ(1, info.piece_count);
+    EXPECT_EQ(1, info.n_pieces);
     EXPECT_EQ(6, info.size);
 
     tr_torrentMetainfoFree(tm);
@@ -187,7 +187,7 @@ TEST(TorrentMetainfoTest, MultiFile)
     EXPECT_EQ(info_hash, info.info_hash);
     EXPECT_EQ(false, info.is_private);
     EXPECT_EQ("test"sv, std::string_view{ info.name });
-    EXPECT_EQ(1, info.piece_count);
+    EXPECT_EQ(1, info.n_pieces);
     EXPECT_EQ(1636241186, info.time_created);
     EXPECT_EQ(12, info.size);
 

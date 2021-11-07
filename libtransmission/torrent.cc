@@ -729,6 +729,8 @@ uint32_t tr_getBlockSize(uint32_t pieceSize)
 
 static void refreshCurrentDir(tr_torrent* tor);
 
+#include <iostream>
+
 static void torrentInitFromInfo(tr_torrent* tor)
 {
     tr_info const* const info = &tor->info;
@@ -758,6 +760,15 @@ static void torrentInitFromInfo(tr_torrent* tor)
     tor->blockCount = tor->blockSize != 0 ? (info->totalSize + tor->blockSize - 1) / tor->blockSize : 0;
     tor->blockCountInPiece = tor->blockSize != 0 ? info->pieceSize / tor->blockSize : 0;
     tor->blockCountInLastPiece = tor->blockSize != 0 ? (tor->lastPieceSize + tor->blockSize - 1) / tor->blockSize : 0;
+
+    std::cerr << "total size: " << tor->info.totalSize << std::endl;
+    std::cerr << "total size: " << tor->info.pieceSize << std::endl;
+    std::cerr << "block size: " << tor->blockSize << std::endl;
+    std::cerr << "last piece size: " << tor->lastPieceSize << std::endl;
+    std::cerr << "last block size: " << tor->lastBlockSize << std::endl;
+    std::cerr << "block count: " << tor->blockCount << std::endl;
+    std::cerr << "block count per piece: " << tor->blockCountInPiece << std::endl;
+    std::cerr << "block count in last piece: " << tor->blockCountInLastPiece << std::endl;
 
 #ifdef TR_ENABLE_ASSERTS
     /* check our work */
