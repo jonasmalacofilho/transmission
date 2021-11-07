@@ -350,9 +350,9 @@ char const* parseImpl(tr_torrent_metainfo& setme, tr_variant* meta)
     int64_t i = 0;
     auto sv = std::string_view{};
 
-    /* info_hash: urlencoded 20-byte SHA1 hash of the value of the info key
-     * from the Metainfo file. Note that the value will be a bencoded
-     * dictionary, given the definition of the info key above. */
+    // info_hash: urlencoded 20-byte SHA1 hash of the value of the info key
+    // from the Metainfo file. Note that the value will be a bencoded
+    // dictionary, given the definition of the info key above.
     tr_variant* info_dict = nullptr;
     if (tr_variantDictFindDict(meta, TR_KEY_info, &info_dict))
     {
@@ -487,6 +487,17 @@ char const* parseImpl(tr_torrent_metainfo& setme, tr_variant* meta)
 
 } // namespace
 
+bool tr_torrent_metainfo::parse(tr_variant* variant, tr_error** error)
+{
+    auto const* const errmsg = parseImpl(*this, variant);
+    if (errmsg != nullptr)
+    {
+        tr_error_set(error, TR_ERROR_EINVAL, "Error parsing metainfo: %s", errmsg);
+        return false;
+    }
+    return true;
+}
+
 //// Public API
 
 /// Lifecycle
@@ -494,7 +505,6 @@ char const* parseImpl(tr_torrent_metainfo& setme, tr_variant* meta)
 tr_torrent_metainfo* tr_torrentMetainfoNewFromData(char const* data, size_t data_len, struct tr_error** error)
 {
     auto top = tr_variant{};
-
     auto const benc_parse_err = tr_variantFromBenc(&top, data, data_len);
     if (benc_parse_err)
     {
@@ -503,11 +513,10 @@ tr_torrent_metainfo* tr_torrentMetainfoNewFromData(char const* data, size_t data
     }
 
     auto* tm = new tr_torrent_metainfo{};
-    auto const* const errmsg = parseImpl(*tm, &top);
+    auto const success = tm->parse(&top, error);
     tr_variantFree(&top);
-    if (errmsg != nullptr)
+    if (!success)
     {
-        tr_error_set(error, TR_ERROR_EINVAL, "Error parsing metainfo: %s", errmsg);
         delete tm;
         return nullptr;
     }
