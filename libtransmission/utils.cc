@@ -283,6 +283,53 @@ void tr_timerAddMsec(struct event* timer, int msec)
 ***
 **/
 
+bool tr_loadFile(std::vector<std::byte>& setme, std::string_view path, tr_error** error)
+{
+    // TODO: tr_sys_path_ funcs should take a string_view
+    auto const sz_path = std::string{ path };
+    char const* const err_fmt = _("Couldn't read \"%1$s\": %2$s");
+
+    // try to stat the file to get its size
+
+    auto info = tr_sys_path_info{};
+    tr_error* my_error = nullptr;
+    if (!tr_sys_path_get_info(sz_path.c_str(), 0, &info, &my_error))
+    {
+        tr_logAddDebug(err_fmt, sz_path.c_str(), my_error->message);
+        tr_error_propagate(error, &my_error);
+        return false;
+    }
+
+    if (info.type != TR_SYS_PATH_IS_FILE)
+    {
+        tr_logAddError(err_fmt, sz_path.c_str(), _("Not a regular file"));
+        tr_error_set_literal(error, TR_ERROR_EISDIR, _("Not a regular file"));
+        return false;
+    }
+
+    // load the file
+
+    auto const fd = tr_sys_file_open(sz_path.c_str(), TR_SYS_FILE_READ | TR_SYS_FILE_SEQUENTIAL, 0, &my_error);
+    if (fd == TR_BAD_SYS_FILE)
+    {
+        tr_logAddError(err_fmt, sz_path.c_str(), my_error->message);
+        tr_error_propagate(error, &my_error);
+        return false;
+    }
+
+    setme.resize(info.size);
+    if (!tr_sys_file_read(fd, std::data(setme), std::size(setme), nullptr, &my_error))
+    {
+        tr_logAddError(err_fmt, sz_path.c_str(), my_error->message);
+        tr_sys_file_close(fd, nullptr);
+        tr_error_propagate(error, &my_error);
+        return false;
+    }
+
+    tr_sys_file_close(fd, nullptr);
+    return true;
+}
+
 // TODO: return a std::vector<>
 uint8_t* tr_loadFile(char const* path, size_t* size, tr_error** error)
 {

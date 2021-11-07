@@ -24,7 +24,7 @@
 
 struct tr_torrent_metainfo
 {
-    bool parse(tr_variant* variant, tr_error** error = nullptr);
+    bool parse(std::byte const* benc, size_t benc_len, tr_error** error = nullptr);
 
     std::string magnet() const;
 
@@ -84,7 +84,8 @@ struct tr_torrent_metainfo
         return std::string_view{ std::data(info_hash_chars), std::size(info_hash_chars) - 1 };
     }
 
-    uint64_t info_dict_length = 0;
+    uint64_t info_dict_size = 0;
+    uint64_t info_dict_offset = 0;
 
     time_t time_created = 0;
 

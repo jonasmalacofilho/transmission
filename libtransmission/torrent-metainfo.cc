@@ -352,7 +352,7 @@ tr_piece_index_t getBytePiece(tr_torrent_metainfo const& tm, uint64_t byte_offse
     return byte_offset == tm.total_size ? tm.n_pieces - 1 : byte_offset / tm.piece_size;
 }
 
-char const* parseImpl(tr_torrent_metainfo& setme, tr_variant* meta)
+char const* parseImpl(tr_torrent_metainfo& setme, tr_variant* meta, std::byte const* benc, size_t benc_len)
 {
     int64_t i = 0;
     auto sv = std::string_view{};
@@ -363,11 +363,22 @@ char const* parseImpl(tr_torrent_metainfo& setme, tr_variant* meta)
     tr_variant* info_dict = nullptr;
     if (tr_variantDictFindDict(meta, TR_KEY_info, &info_dict))
     {
+        // Calculate the hash of the `info` dict.
+        // This is the torrent's unique ID and is central to everything.
         size_t blen = 0;
-        char* bstr = tr_variantToStr(info_dict, TR_VARIANT_FMT_BENC, &blen);
+        auto* const bstr = reinterpret_cast<std::byte*>(tr_variantToStr(info_dict, TR_VARIANT_FMT_BENC, &blen));
         tr_sha1(reinterpret_cast<uint8_t*>(std::data(setme.info_hash)), bstr, (int)blen, nullptr);
         tr_sha1_to_hex(std::data(setme.info_hash_chars), std::data(setme.info_hash));
-        setme.info_dict_length = blen;
+
+        // Remember the offset and length of the bencoded info dict.
+        // This is important when providing metainfo to magnet peers;
+        // see http://bittorrent.org/beps/bep_0053.html for details.
+        //
+        // Calculating this later from scratch is kind of expensive,
+        // so do it here since we've already got the bencoded info dict.
+        auto const it = std::search(benc, benc + benc_len, bstr, bstr + blen);
+        setme.info_dict_offset = std::distance(benc, it);
+        setme.info_dict_size = blen;
         tr_free(bstr);
     }
     else
@@ -510,14 +521,24 @@ char const* parseImpl(tr_torrent_metainfo& setme, tr_variant* meta)
 
 } // namespace
 
-bool tr_torrent_metainfo::parse(tr_variant* variant, tr_error** error)
+bool tr_torrent_metainfo::parse(std::byte const* benc, size_t benc_len, tr_error** error)
 {
-    auto const* const errmsg = parseImpl(*this, variant);
+    auto top = tr_variant{};
+    auto const benc_parse_err = tr_variantFromBenc(&top, benc, benc_len);
+    if (benc_parse_err)
+    {
+        tr_error_set(error, TR_ERROR_EINVAL, "Error parsing bencoded data: %s", tr_strerror(benc_parse_err));
+        return false;
+    }
+
+    auto const* const errmsg = parseImpl(*this, &top, benc, benc_len);
+    tr_variantFree(&top);
     if (errmsg != nullptr)
     {
         tr_error_set(error, TR_ERROR_EINVAL, "Error parsing metainfo: %s", errmsg);
         return false;
     }
+
     return true;
 }
 
@@ -555,18 +576,8 @@ std::string tr_torrent_metainfo::magnet() const
 
 tr_torrent_metainfo* tr_torrentMetainfoNewFromData(char const* data, size_t data_len, struct tr_error** error)
 {
-    auto top = tr_variant{};
-    auto const benc_parse_err = tr_variantFromBenc(&top, data, data_len);
-    if (benc_parse_err)
-    {
-        tr_error_set(error, TR_ERROR_EINVAL, "Error parsing bencoded data: %s", tr_strerror(benc_parse_err));
-        return nullptr;
-    }
-
     auto* tm = new tr_torrent_metainfo{};
-    auto const success = tm->parse(&top, error);
-    tr_variantFree(&top);
-    if (!success)
+    if (!tm->parse(reinterpret_cast<std::byte const*>(data), data_len, error))
     {
         delete tm;
         return nullptr;
@@ -577,17 +588,19 @@ tr_torrent_metainfo* tr_torrentMetainfoNewFromData(char const* data, size_t data
 
 tr_torrent_metainfo* tr_torrentMetainfoNewFromFile(char const* filename, struct tr_error** error)
 {
-    auto raw_len = size_t{};
-    tr_error* my_error = nullptr;
-    auto* const raw = tr_loadFile(filename, &raw_len, &my_error);
-    if (my_error)
+    auto benc = std::vector<std::byte>{};
+    if (!tr_loadFile(benc, filename, error))
     {
-        tr_error_propagate(error, &my_error);
         return nullptr;
     }
 
-    auto* const tm = tr_torrentMetainfoNewFromData(reinterpret_cast<char const*>(raw), raw_len, error);
-    tr_free(raw);
+    auto* tm = new tr_torrent_metainfo{};
+    if (!tm->parse(std::data(benc), std::size(benc), error))
+    {
+        delete tm;
+        return nullptr;
+    }
+
     return tm;
 }
 
