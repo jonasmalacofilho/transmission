@@ -366,8 +366,8 @@ char const* parseImpl(tr_torrent_metainfo& setme, tr_variant* meta)
         size_t blen = 0;
         char* bstr = tr_variantToStr(info_dict, TR_VARIANT_FMT_BENC, &blen);
         tr_sha1(reinterpret_cast<uint8_t*>(std::data(setme.info_hash)), bstr, (int)blen, nullptr);
-        tr_sha1_to_hex(std::data(setme.info_hash_string), std::data(setme.info_hash));
-        setme.info_dict.length = blen;
+        tr_sha1_to_hex(std::data(setme.info_hash_chars), std::data(setme.info_hash));
+        setme.info_dict_length = blen;
         tr_free(bstr);
     }
     else
@@ -610,7 +610,7 @@ tr_torrent_metainfo_info* tr_torrentMetainfoGet(tr_torrent_metainfo const* tm, t
     setme->comment = tm->comment.c_str();
     setme->creator = tm->creator.c_str();
     setme->info_hash = tm->info_hash;
-    setme->info_hash_string = tm->info_hash_string;
+    setme->info_hash_string = std::data(tm->info_hash_chars);
     setme->is_private = tm->is_private;
     setme->n_pieces = tm->n_pieces;
     setme->name = tm->name.c_str();

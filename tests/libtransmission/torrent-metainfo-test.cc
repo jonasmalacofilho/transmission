@@ -109,15 +109,15 @@ TEST(TorrentMetainfoTest, SingleFile)
     EXPECT_EQ(&info, tr_torrentMetainfoGet(tm, &info));
     EXPECT_EQ(""sv, info.comment);
     EXPECT_EQ("Transmission/3.00 (bb6b5a062e)"sv, info.creator);
-    EXPECT_EQ("8634b6345eceddb0c605af1ec6108ba3008127de"sv, std::data(info.info_hash_string));
+    EXPECT_EQ("8634b6345eceddb0c605af1ec6108ba3008127de"sv, info.info_hash_string);
     auto info_hash = tr_sha1_digest_t{};
-    tr_hex_to_sha1(std::data(info_hash), std::data(info.info_hash_string));
+    tr_hex_to_sha1(std::data(info_hash), info.info_hash_string);
     EXPECT_EQ(info_hash, info.info_hash);
     EXPECT_EQ(true, info.is_private);
     EXPECT_EQ("hello.txt"sv, info.name);
     EXPECT_EQ(1, info.n_pieces);
     EXPECT_EQ(1636238372, info.time_created);
-    EXPECT_EQ(6, info.size);
+    EXPECT_EQ(6, info.total_size);
 
     auto tracker_info = tr_torrent_metainfo_tracker_info{};
     EXPECT_EQ(1, tr_torrentMetainfoTrackerCount(tm));
@@ -147,11 +147,11 @@ TEST(TorrentMetainfoTest, CreationDateIsOptional)
 
     auto info = tr_torrent_metainfo_info{};
     EXPECT_EQ(&info, tr_torrentMetainfoGet(tm, &info));
-    EXPECT_EQ("8634b6345eceddb0c605af1ec6108ba3008127de"sv, std::data(info.info_hash_string));
+    EXPECT_EQ("8634b6345eceddb0c605af1ec6108ba3008127de"sv, info.info_hash_string);
     EXPECT_EQ("hello.txt"sv, info.name);
     EXPECT_EQ(0, info.time_created);
     EXPECT_EQ(1, info.n_pieces);
-    EXPECT_EQ(6, info.size);
+    EXPECT_EQ(6, info.total_size);
 
     tr_torrentMetainfoFree(tm);
 }
@@ -181,15 +181,15 @@ TEST(TorrentMetainfoTest, MultiFile)
     EXPECT_EQ(&info, tr_torrentMetainfoGet(tm, &info));
     EXPECT_EQ("this is the comment"sv, info.comment);
     EXPECT_EQ("Transmission/3.00 (bb6b5a062e)"sv, info.creator);
-    EXPECT_EQ("872bb1ee696856f3a9779c69284121d273c079c2"sv, std::data(info.info_hash_string));
+    EXPECT_EQ("872bb1ee696856f3a9779c69284121d273c079c2"sv, info.info_hash_string);
     auto info_hash = tr_sha1_digest_t{};
-    tr_hex_to_sha1(std::data(info_hash), std::data(info.info_hash_string));
+    tr_hex_to_sha1(std::data(info_hash), info.info_hash_string);
     EXPECT_EQ(info_hash, info.info_hash);
     EXPECT_EQ(false, info.is_private);
     EXPECT_EQ("test"sv, std::string_view{ info.name });
     EXPECT_EQ(1, info.n_pieces);
     EXPECT_EQ(1636241186, info.time_created);
-    EXPECT_EQ(12, info.size);
+    EXPECT_EQ(12, info.total_size);
 
     auto tracker_info = tr_torrent_metainfo_tracker_info{};
     EXPECT_EQ(1, tr_torrentMetainfoTrackerCount(tm));

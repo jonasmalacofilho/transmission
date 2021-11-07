@@ -32,13 +32,13 @@ struct tr_torrent_metainfo_info
 {
     char const* comment;
     char const* creator;
+    char const* info_hash_string;
     char const* name;
     char const* source;
 
     time_t time_created;
 
     tr_sha1_digest_t info_hash;
-    tr_sha1_digest_string_t info_hash_string;
 
     uint64_t total_size;
     tr_piece_index_t n_pieces;
