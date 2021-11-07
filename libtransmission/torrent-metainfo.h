@@ -84,8 +84,15 @@ struct tr_torrent_metainfo
         return std::string_view{ std::data(info_hash_chars), std::size(info_hash_chars) - 1 };
     }
 
+    // Location of the bencoded info dict in the entire bencoded torrent data.
+    // Used when loading pieces of it to sent to magnet peers.
+    // See http://bittorrent.org/beps/bep_0009.html
     uint64_t info_dict_size = 0;
     uint64_t info_dict_offset = 0;
+
+    // Location of the bencoded 'pieces' checksums in the entire bencoded
+    // torrent data. Used when loading piece checksums on demand.
+    uint64_t pieces_offset = 0;
 
     time_t time_created = 0;
 

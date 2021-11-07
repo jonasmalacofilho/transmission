@@ -9,7 +9,7 @@
 #include <algorithm>
 #include <iterator>
 
-#include <event2/util.h>
+#include <event2/util.h> // evutil_ascii_strncasecmp
 
 #include "transmission.h"
 
@@ -371,14 +371,22 @@ char const* parseImpl(tr_torrent_metainfo& setme, tr_variant* meta, std::byte co
         tr_sha1_to_hex(std::data(setme.info_hash_chars), std::data(setme.info_hash));
 
         // Remember the offset and length of the bencoded info dict.
-        // This is important when providing metainfo to magnet peers;
-        // see http://bittorrent.org/beps/bep_0053.html for details.
+        // This is important when providing metainfo to magnet peers
+        // (see http://bittorrent.org/beps/bep_0009.html for details).
         //
         // Calculating this later from scratch is kind of expensive,
         // so do it here since we've already got the bencoded info dict.
         auto const it = std::search(benc, benc + benc_len, bstr, bstr + blen);
         setme.info_dict_offset = std::distance(benc, it);
         setme.info_dict_size = blen;
+
+        // In addition, remember the offset of the pieces dictionary entry.
+        // This will be useful when we load piece checksums on demand.
+        auto const key = "6:pieces"sv;
+        auto const* bkey = reinterpret_cast<std::byte const*>(std::data(key));
+        auto const pit = std::search(bstr, bstr + blen, bkey, bkey + std::size(key));
+        setme.pieces_offset = setme.info_dict_offset + (pit - bstr) + std::size(key);
+
         tr_free(bstr);
     }
     else
