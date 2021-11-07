@@ -48,19 +48,22 @@ struct tr_torrent_metainfo
 
     struct file_t
     {
+        uint64_t size = 0; // size of the file, in bytes
+        uint64_t offset = 0; // file begins at the torrent's nth byte
+        tr_piece_index_t first_piece = 0; // we need pieces [first_piece...
+        tr_piece_index_t last_piece = 0; // ...last_piece] to dl this file
         std::string path;
-        uint64_t size;
-        bool is_adjusted;
+        bool is_renamed = false;
 
-        file_t(std::string const& path_in, uint64_t size_in, bool is_adjusted_in)
-            : path{ path_in }
-            , size{ size_in }
-            , is_adjusted{ is_adjusted_in }
+        file_t(std::string const& path_in, uint64_t size_in, bool is_renamed)
+            : size{ size_in }
+            , path{ path_in }
+            , is_renamed{ is_renamed }
         {
         }
     };
 
-    struct info_dict_t
+    struct info_dict_t // TODO: is this actually needed
     {
         uint64_t length;
     };
@@ -76,17 +79,16 @@ struct tr_torrent_metainfo
     std::vector<file_t> files;
     std::vector<uint64_t> file_sizes;
 
-    time_t time_created;
+    tr_sha1_digest_string_t info_hash_string;
+    tr_sha1_digest_t info_hash;
 
     info_dict_t info_dict;
+
+    time_t time_created;
 
     uint64_t size;
     uint32_t piece_size;
     tr_piece_index_t piece_count;
 
-    tr_sha1_digest_t info_hash;
-    tr_sha1_digest_string_t info_hash_string;
-
     bool is_private;
-    bool is_folder; // FIXME is this needed?
 };

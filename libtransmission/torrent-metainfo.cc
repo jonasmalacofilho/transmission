@@ -345,6 +345,13 @@ void parseWebseeds(tr_torrent_metainfo& setme, tr_variant* meta)
     }
 }
 
+tr_piece_index_t getBytePiece(tr_torrent_metainfo const& tm, uint64_t byte_offset)
+{
+    return byte_offset == tm.size ? tm.piece_count - 1 // handle 0-byte files at the end of a torrent
+                                    :
+                                    byte_offset / tm.piece_size;
+}
+
 char const* parseImpl(tr_torrent_metainfo& setme, tr_variant* meta)
 {
     int64_t i = 0;
@@ -462,7 +469,23 @@ char const* parseImpl(tr_torrent_metainfo& setme, tr_variant* meta)
 
     // files
     auto const* const errstr = parseFiles(setme, info_dict);
-    if (errstr != nullptr)
+    if (errstr == nullptr)
+    {
+        // populate file.offset, file.first_piece, file.last_piece
+        auto offset = uint64_t{};
+        for (auto& file : setme.files)
+        {
+            uint64_t const first_byte = offset;
+            uint64_t const last_byte = first_byte + (file.size != 0 ? file.size - 1 : 0);
+
+            file.offset = offset;
+            file.first_piece = getBytePiece(setme, first_byte);
+            file.last_piece = getBytePiece(setme, last_byte);
+
+            offset += file.size;
+        }
+    }
+    else
     {
         return errstr;
     }
