@@ -40,7 +40,7 @@ struct tr_torrent_metainfo_info
     tr_sha1_digest_t info_hash;
     tr_sha1_digest_string_t info_hash_string;
 
-    uint64_t size;
+    uint64_t total_size;
     tr_piece_index_t n_pieces;
 
     bool is_private;
@@ -58,7 +58,7 @@ struct tr_torrent_metainfo_file_info
     // To get the complete path, prepend tr_torrentGetCurrentDir().
     char const* path;
 
-    // Total size of the file, in bytes
+    // size of the file, in bytes, when fully downloaded
     uint64_t size;
 };
 

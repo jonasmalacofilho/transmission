@@ -29,11 +29,11 @@ struct tr_block_info
     uint32_t final_block_size = 0;
     uint32_t final_piece_size = 0;
 
-    tr_block_info(uint64_t total_size_in, uint64_t piece_size_in);
+    void initBlockInfo(uint64_t total_size_in, uint64_t piece_size_in);
 
-    tr_block_info(tr_torrent_metainfo const& tm)
-        : tr_block_info(tm.size, tm.piece_size)
+    void initBlockInfo(tr_torrent_metainfo const& tm)
     {
+        initBlockInfo(tm.total_size, tm.piece_size);
     }
 
     constexpr tr_piece_index_t blockPiece(tr_block_index_t block) const
@@ -47,9 +47,11 @@ struct tr_block_info
         return piece + 1 == n_pieces ? final_piece_size : piece_size;
     }
 
-    constexpr uint32_t countBytesInBlock(tr_block_index_t block)
+    constexpr uint32_t countBytesInBlock(tr_block_index_t block) const
     {
         // how many bytes are in this block?
         return block + 1 == n_blocks ? final_block_size : block_size;
     }
+
+    static uint32_t bestBlockSize(uint64_t piece_size);
 };

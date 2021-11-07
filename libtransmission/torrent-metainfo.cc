@@ -131,7 +131,7 @@ char* getfile(bool* is_adjusted, std::string_view root, tr_variant* path, std::s
 
 char const* parseFiles(tr_torrent_metainfo& setme, tr_variant* info_dict)
 {
-    setme.size = 0;
+    setme.total_size = 0;
     setme.files.clear();
 
     auto is_root_adjusted = bool{ false };
@@ -153,7 +153,7 @@ char const* parseFiles(tr_torrent_metainfo& setme, tr_variant* info_dict)
     tr_variant* files_entry = nullptr;
     if (tr_variantDictFindInt(info_dict, TR_KEY_length, &len))
     {
-        setme.size = len;
+        setme.total_size = len;
         setme.files.emplace_back(root_name, len, is_root_adjusted);
     }
     // "For the purposes of the other keys, the multi-file case is treated as
@@ -198,7 +198,7 @@ char const* parseFiles(tr_torrent_metainfo& setme, tr_variant* info_dict)
             }
 
             setme.files.emplace_back(buf, len, is_root_adjusted || is_file_adjusted);
-            setme.size += len;
+            setme.total_size += len;
 
             tr_free(file);
         }
@@ -348,9 +348,8 @@ void parseWebseeds(tr_torrent_metainfo& setme, tr_variant* meta)
 
 tr_piece_index_t getBytePiece(tr_torrent_metainfo const& tm, uint64_t byte_offset)
 {
-    return byte_offset == tm.size ? tm.n_pieces - 1 // handle 0-byte files at the end of a torrent
-                                    :
-                                    byte_offset / tm.piece_size;
+    // handle 0-byte files at the end of a torrent
+    return byte_offset == tm.total_size ? tm.n_pieces - 1 : byte_offset / tm.piece_size;
 }
 
 char const* parseImpl(tr_torrent_metainfo& setme, tr_variant* meta)
@@ -481,7 +480,7 @@ char const* parseImpl(tr_torrent_metainfo& setme, tr_variant* meta)
 
             file.offset = offset;
             file.first_piece = getBytePiece(setme, first_byte);
-            file.last_piece = getBytePiece(setme, last_byte);
+            file.final_piece = getBytePiece(setme, last_byte);
 
             offset += file.size;
         }
@@ -491,13 +490,13 @@ char const* parseImpl(tr_torrent_metainfo& setme, tr_variant* meta)
         return errstr;
     }
 
-    if (std::empty(setme.files) || setme.size == 0)
+    if (std::empty(setme.files) || setme.total_size == 0)
     {
         return "no files found";
     }
 
     // do the size and piece size match up?
-    auto const expected_n_pieces = (setme.size + (setme.piece_size - 1)) / setme.piece_size;
+    auto const expected_n_pieces = (setme.total_size + (setme.piece_size - 1)) / setme.piece_size;
     if (uint64_t(setme.n_pieces) != expected_n_pieces)
     {
         return "piece count and file sizes do not match";
@@ -527,7 +526,7 @@ std::string tr_torrent_metainfo::magnet() const
     auto s = std::string{};
 
     s += "magnet:?xt=urn:btih:"sv;
-    s += std::string_view{ std::data(info_hash_string), std::size(info_hash_string) - 1 }; // skip zero termination
+    s += infoHashString();
 
     if (!std::empty(name))
     {
@@ -613,11 +612,11 @@ tr_torrent_metainfo_info* tr_torrentMetainfoGet(tr_torrent_metainfo const* tm, t
     setme->info_hash = tm->info_hash;
     setme->info_hash_string = tm->info_hash_string;
     setme->is_private = tm->is_private;
-    setme->name = tm->name.c_str();
     setme->n_pieces = tm->n_pieces;
-    setme->size = tm->size;
+    setme->name = tm->name.c_str();
     setme->source = tm->source.c_str();
     setme->time_created = tm->time_created;
+    setme->total_size = tm->total_size;
     return setme;
 }
 

@@ -64,11 +64,6 @@ struct tr_torrent_metainfo
         }
     };
 
-    struct info_dict_t // TODO: is this actually needed
-    {
-        uint64_t length;
-    };
-
     std::string comment;
     std::string creator;
     std::string name;
@@ -80,16 +75,22 @@ struct tr_torrent_metainfo
     std::vector<file_t> files;
     std::vector<uint64_t> file_sizes;
 
-    tr_sha1_digest_string_t info_hash_string;
+    tr_sha1_digest_string_t info_hash_chars;
     tr_sha1_digest_t info_hash;
 
-    info_dict_t info_dict;
+    std::string_view infoHashString() const
+    {
+        // trim one byte off the end because of zero termination
+        return std::string_view{ std::data(info_hash_chars), std::size(info_hash_chars) - 1 };
+    }
 
-    time_t time_created;
+    uint64_t info_dict_length = 0;
 
-    uint64_t size;
-    uint32_t piece_size;
-    tr_piece_index_t n_pieces;
+    time_t time_created = 0;
 
-    bool is_private;
+    uint64_t total_size = 0;
+    uint32_t piece_size = 0;
+    tr_piece_index_t n_pieces = 0;
+
+    bool is_private = true;
 };

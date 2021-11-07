@@ -36,11 +36,12 @@ uint32_t tr_block_info::bestBlockSize(uint64_t piece_size)
     return b;
 }
 
-tr_block_info::tr_block_info(uint64_t total_size_in, uint64_t piece_size_in)
-    : total_size{ total_size_in }
-    , piece_size{ piece_size_in }
-    , block_size{ bestBlockSize(piece_size) }
+void tr_block_info::initBlockInfo(uint64_t total_size_in, uint64_t piece_size_in)
 {
+    total_size = total_size_in;
+    piece_size = piece_size_in;
+    block_size = bestBlockSize(piece_size);
+
     if (piece_size == 0 || block_size == 0)
     {
         return;
