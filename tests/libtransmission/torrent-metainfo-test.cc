@@ -43,6 +43,12 @@ TEST(TorrentMetainfoTest, FailsAndErrorIfBadBencData)
 
 TEST(TorrentMetainfoTest, FailsAndErrorIfNoInfoDict)
 {
+    tr_error* error = nullptr;
+    auto const filename = std::string{ AssetsPath } + std::string{ "/no-info-dict.torrent" };
+    EXPECT_EQ(nullptr, tr_torrentMetainfoNewFromFile(filename.c_str(), &error));
+    EXPECT_NE(nullptr, error);
+    EXPECT_EQ(TR_ERROR_EINVAL, error->code);
+    tr_error_clear(&error);
 }
 
 TEST(TorrentMetainfoTest, FailsAndErrorIfNoNameInInfoDict)
