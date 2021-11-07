@@ -705,28 +705,6 @@ static void tr_torrentInitPiecePriorities(tr_torrent* tor)
 
 static void torrentStart(tr_torrent* tor, bool bypass_queue);
 
-/**
- * Decide on a block size. Constraints:
- * (1) most clients decline requests over 16 KiB
- * (2) pieceSize must be a multiple of block size
- */
-uint32_t tr_getBlockSize(uint32_t pieceSize)
-{
-    uint32_t b = pieceSize;
-
-    while (b > MAX_BLOCK_SIZE)
-    {
-        b /= 2U;
-    }
-
-    if (b == 0 || pieceSize % b != 0) /* not cleanly divisible */
-    {
-        return 0;
-    }
-
-    return b;
-}
-
 static void refreshCurrentDir(tr_torrent* tor);
 
 #include <iostream>
@@ -807,7 +785,6 @@ static void torrentInit(tr_torrent* tor, tr_ctor const* ctor)
 
     tor->session = session;
     tor->uniqueId = nextUniqueId++;
-    tor->magicNumber = TORRENT_MAGIC_NUMBER;
     tor->queuePosition = tr_sessionCountTorrents(session);
 
     tor->dnd_pieces_ = tr_bitfield{ tor->info.pieceCount };
@@ -972,7 +949,7 @@ static tr_parse_result torrentParseImpl(
         result = TR_PARSE_ERR;
     }
 
-    if (didParse && hasInfo && tr_getBlockSize(setmeInfo->pieceSize) == 0)
+    if (didParse && hasInfo && tr_block_info::bestBlockSize(setmeInfo->pieceSize) == 0)
     {
         result = TR_PARSE_ERR;
     }

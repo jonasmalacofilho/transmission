@@ -131,9 +131,6 @@ struct tr_torrent : public tr_block_info
 {
     tr_session* session;
     tr_info info;
-    tr_torrent_metainfo metainfo;
-
-    int magicNumber;
 
     std::optional<double> verify_progress;
     std::vector<tr_sha1_digest_t> piece_checksums;
@@ -437,14 +434,9 @@ constexpr bool tr_torrentAllowsLPD(tr_torrent const* tor)
 ****
 ***/
 
-enum
-{
-    TORRENT_MAGIC_NUMBER = 95549
-};
-
 constexpr bool tr_isTorrent(tr_torrent const* tor)
 {
-    return tor != nullptr && tor->magicNumber == TORRENT_MAGIC_NUMBER && tr_isSession(tor->session);
+    return tor != nullptr && tr_isSession(tor->session);
 }
 
 /* set a flag indicating that the torrent's .resume file
@@ -463,8 +455,6 @@ static inline void tr_torrentMarkEdited(tr_torrent* tor)
 
     tor->editDate = tr_time();
 }
-
-uint32_t tr_getBlockSize(uint32_t pieceSize);
 
 /**
  * Tell the tr_torrent that it's gotten a block
