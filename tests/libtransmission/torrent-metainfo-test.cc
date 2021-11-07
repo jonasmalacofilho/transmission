@@ -12,6 +12,7 @@
 #include "transmission.h"
 
 #include "crypto-utils.h"
+#include "error-types.h"
 #include "torrent-metainfo.h"
 
 #include <gtest/gtest.h>
@@ -22,10 +23,22 @@ auto constexpr AssetsPath = std::string_view{ LIBTRANSMISSION_TEST_ASSETS_DIR };
 
 TEST(TorrentMetainfoTest, FailsAndSetsErrorIfBadFile)
 {
+    tr_error* error = nullptr;
+    auto const filename = std::string{ AssetsPath } + std::string{ "/this-file-does-not-exist.torrent" };
+    EXPECT_EQ(nullptr, tr_torrentMetainfoNewFromFile(filename.c_str(), &error));
+    EXPECT_NE(nullptr, error);
+    EXPECT_TRUE(TR_ERROR_IS_ENOENT(error->code));
+    tr_error_clear(&error);
 }
 
 TEST(TorrentMetainfoTest, FailsAndErrorIfBadBencData)
 {
+    tr_error* error = nullptr;
+    auto const filename = std::string{ AssetsPath } + std::string{ "/corrupt-benc.torrent" };
+    EXPECT_EQ(nullptr, tr_torrentMetainfoNewFromFile(filename.c_str(), &error));
+    EXPECT_NE(nullptr, error);
+    EXPECT_EQ(TR_ERROR_EINVAL, error->code);
+    tr_error_clear(&error);
 }
 
 TEST(TorrentMetainfoTest, FailsAndErrorIfNoInfoDict)
@@ -133,6 +146,8 @@ TEST(TorrentMetainfoTest, CreationDateIsOptional)
     EXPECT_EQ(0, info.time_created);
     EXPECT_EQ(1, info.piece_count);
     EXPECT_EQ(6, info.size);
+
+    tr_torrentMetainfoFree(tm);
 }
 
 TEST(TorrentMetainfoTest, MultiFile)
