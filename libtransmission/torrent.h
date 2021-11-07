@@ -19,12 +19,15 @@
 #include <unordered_set>
 #include <vector>
 
+#include "transmission.h"
+
 #include "bandwidth.h" /* tr_bandwidth */
 #include "bitfield.h"
 #include "completion.h" /* tr_completion */
 #include "file.h"
 #include "quark.h"
 #include "session.h" /* tr_sessionLock(), tr_sessionUnlock() */
+#include "torrent-metainfo-private.h"
 #include "tr-assert.h"
 #include "tr-macros.h"
 #include "utils.h" /* TR_GNUC_PRINTF */
@@ -137,6 +140,7 @@ struct tr_torrent
 {
     tr_session* session;
     tr_info info;
+    tr_torrent_metainfo metainfo;
 
     int magicNumber;
 

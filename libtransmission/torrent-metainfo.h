@@ -24,6 +24,8 @@ void tr_torrentMetainfoFree(struct tr_torrent_metainfo* tm);
 
 //// Accessors
 
+char* tr_torrentMetainfoMagnet(struct tr_torrent_metainfo const* tm);
+
 /// Info
 
 struct tr_torrent_metainfo_info

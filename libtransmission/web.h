@@ -60,6 +60,8 @@ char const* tr_webGetTaskRealUrl(struct tr_web_task* task);
 
 void tr_http_escape(struct evbuffer* out, std::string_view str, bool escape_reserved);
 
+void tr_http_escape(std::string& out, std::string_view str, bool escape_reserved);
+
 void tr_http_escape_sha1(char* out, uint8_t const* sha1_digest);
 
 void tr_http_escape_sha1(char* out, tr_sha1_digest_t const& digest);

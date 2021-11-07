@@ -390,7 +390,7 @@ double tr_torrentGetMetadataPercent(tr_torrent const* tor)
     return m == nullptr || m->pieceCount == 0 ? 0.0 : (m->pieceCount - m->piecesNeededCount) / (double)m->pieceCount;
 }
 
-/* TODO: this should be renamed tr_metainfoGetMagnetLink() and moved to metainfo.c for consistency */
+/* REFACTOR: this should be renamed tr_metainfoGetMagnetLink() and moved to metainfo.c for consistency */
 char* tr_torrentInfoGetMagnetLink(tr_info const* inf)
 {
     evbuffer* const s = evbuffer_new();

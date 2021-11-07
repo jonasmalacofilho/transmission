@@ -761,6 +761,26 @@ void tr_http_escape(struct evbuffer* out, std::string_view str, bool escape_rese
     }
 }
 
+void tr_http_escape(std::string& appendme, std::string_view str, bool escape_reserved)
+{
+    auto constexpr ReservedChars = std::string_view{ "!*'();:@&=+$,/?%#[]" };
+    auto constexpr UnescapedChars = std::string_view{ "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_.~" };
+
+    for (auto& ch : str)
+    {
+        if ((UnescapedChars.find(ch) != std::string_view::npos) || (ReservedChars.find(ch) && !escape_reserved))
+        {
+            appendme += ch;
+        }
+        else
+        {
+            char buf[16];
+            tr_snprintf(buf, sizeof(buf), "%%%02X", (unsigned)(ch & 0xFF));
+            appendme += buf;
+        }
+    }
+}
+
 char* tr_http_unescape(char const* str, size_t len)
 {
     char* tmp = curl_unescape(str, len);

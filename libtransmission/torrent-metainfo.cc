@@ -22,6 +22,7 @@
 #include "tr-assert.h"
 #include "utils.h"
 #include "variant.h"
+#include "web.h"
 
 using namespace std::literals;
 
@@ -521,6 +522,34 @@ bool tr_torrent_metainfo::parse(tr_variant* variant, tr_error** error)
     return true;
 }
 
+std::string tr_torrent_metainfo::magnet() const
+{
+    auto s = std::string{};
+
+    s += "magnet:?xt=urn:btih:"sv;
+    s += std::string_view{ std::data(info_hash_string), std::size(info_hash_string) - 1 }; // skip zero termination
+
+    if (!std::empty(name))
+    {
+        s += "&dn="sv;
+        tr_http_escape(s, name, true);
+    }
+
+    for (auto const& it : trackers)
+    {
+        s += "&tr="sv;
+        tr_http_escape(s, tr_quark_get_string_view(it.second.announce_url), true);
+    }
+
+    for (auto const& webseed : webseed_urls)
+    {
+        s += "&ws="sv;
+        tr_http_escape(s, webseed, true);
+    }
+
+    return s;
+}
+
 //// Public API
 
 /// Lifecycle
@@ -569,6 +598,11 @@ void tr_torrentMetainfoFree(tr_torrent_metainfo* tm)
 }
 
 ////  Accessors
+
+char* tr_torrentMetainfoMagnet(struct tr_torrent_metainfo const* tm)
+{
+    return tr_strvdup(tm->magnet());
+}
 
 /// Info
 

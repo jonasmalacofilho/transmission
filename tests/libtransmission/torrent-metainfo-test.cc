@@ -197,6 +197,11 @@ TEST(TorrentMetainfoTest, MultiFile)
     EXPECT_EQ("http://example.org/announce?id=foo"sv, std::string_view{ tracker_info.announce_url });
     EXPECT_EQ("http://example.org/scrape?id=foo"sv, std::string_view{ tracker_info.scrape_url });
     EXPECT_EQ(0, tracker_info.tier);
+    auto* const magnet = tr_torrentMetainfoMagnet(tm);
+    EXPECT_EQ(
+        "magnet:?xt=urn:btih:872bb1ee696856f3a9779c69284121d273c079c2&dn=test&tr=http%3A%2F%2Fexample.org%2Fannounce%3Fid%3Dfoo"sv,
+        std::string_view{ magnet });
+    tr_free(magnet);
 
     auto file_info = tr_torrent_metainfo_file_info{};
     EXPECT_EQ(2, tr_torrentMetainfoFileCount(tm));

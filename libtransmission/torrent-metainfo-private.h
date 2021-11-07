@@ -27,6 +27,8 @@ struct tr_torrent_metainfo
 {
     bool parse(tr_variant* variant, tr_error** error = nullptr);
 
+    std::string magnet() const;
+
     struct tracker_t
     {
         tr_quark announce_url;
