@@ -1892,9 +1892,9 @@ static int clientGotBlock(tr_peerMsgsImpl* msgs, struct evbuffer* data, struct p
         return EBADMSG;
     }
 
-    if (req->length != tr_torBlockCountBytes(msgs->torrent, block))
+    if (req->length != msgs->torrent->countBytesInBlock(block))
     {
-        dbgmsg(msgs, "wrong block size -- expected %u, got %d", tr_torBlockCountBytes(msgs->torrent, block), req->length);
+        dbgmsg(msgs, "wrong block size -- expected %u, got %d", msgs->torrent->countBytesInBlock(block), req->length);
         return EMSGSIZE;
     }
 
@@ -2027,7 +2027,7 @@ static void updateDesiredRequestCount(tr_peerMsgsImpl* msgs)
 
         /* use this desired rate to figure out how
          * many requests we should send to this peer */
-        int const estimatedBlocksInPeriod = (rate_Bps * seconds) / torrent->blockSize;
+        int const estimatedBlocksInPeriod = (rate_Bps * seconds) / torrent->block_size;
         msgs->desiredRequestCount = std::max(floor, estimatedBlocksInPeriod);
 
         /* honor the peer's maximum request count, if specified */
@@ -2187,7 +2187,7 @@ static size_t fillOutputBuffer(tr_peerMsgsImpl* msgs, time_t now)
     ***  Data Blocks
     **/
 
-    if (tr_peerIoGetWriteBufferSpace(msgs->io, now) >= msgs->torrent->blockSize && popNextRequest(msgs, &req))
+    if (tr_peerIoGetWriteBufferSpace(msgs->io, now) >= msgs->torrent->block_size && popNextRequest(msgs, &req))
     {
         --msgs->prefetchCount;
 

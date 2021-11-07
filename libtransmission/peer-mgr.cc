@@ -245,7 +245,7 @@ tr_peer::tr_peer(tr_torrent const* tor, peer_atom* atom_in)
     : session{ tor->session }
     , atom{ atom_in }
     , swarm{ tor->swarm }
-    , blame{ tor->blockCount }
+    , blame{ tor->n_blocks }
     , have{ tor->info.pieceCount }
 {
 }
@@ -727,7 +727,7 @@ static bool testForEndgame(tr_swarm const* s)
 {
     /* we consider ourselves to be in endgame if the number of bytes
        we've got requested is >= the number of bytes left to download */
-    return (uint64_t)s->requestCount * s->tor->blockSize >= tr_torrentGetLeftUntilDone(s->tor);
+    return (uint64_t)s->requestCount * s->tor->block_size >= tr_torrentGetLeftUntilDone(s->tor);
 }
 
 static void updateEndgame(tr_swarm* s)
@@ -791,10 +791,10 @@ static int comparePieceByWeight(void const* va, void const* vb)
     /* primary key: weight */
     int missing = tr_torrentMissingBlocksInPiece(tor, a->index);
     int pending = a->requestCount;
-    int ia = missing > pending ? missing - pending : tor->blockCountInPiece + pending;
+    int ia = missing > pending ? missing - pending : tor->n_blocks_in_piece + pending;
     missing = tr_torrentMissingBlocksInPiece(tor, b->index);
     pending = b->requestCount;
-    int ib = missing > pending ? missing - pending : tor->blockCountInPiece + pending;
+    int ib = missing > pending ? missing - pending : tor->n_blocks_in_piece + pending;
     if (ia != ib)
     {
         return ia < ib ? -1 : 1;
@@ -1026,9 +1026,8 @@ static void pieceListResortPiece(tr_swarm* s, struct weighted_piece* p)
 
 static void pieceListRemoveRequest(tr_swarm* s, tr_block_index_t block)
 {
-    tr_piece_index_t const index = tr_torBlockPiece(s->tor, block);
-
-    weighted_piece* const p = pieceListLookup(s, index);
+    auto const index = s->tor->pieceForBlock(block);
+    auto* const p = pieceListLookup(s, index);
     if (p != nullptr && p->requestCount > 0)
     {
         --p->requestCount;
@@ -1099,7 +1098,7 @@ void tr_peerMgrGetNextRequests(
         /* if the peer has this piece that we want... */
         if (have->test(p->index))
         {
-            auto const [first, last] = tr_torGetPieceBlockRange(tor, p->index);
+            auto const [first, last] = tor->blockRangeForPiece(p->index);
 
             for (tr_block_index_t b = first; b <= last && (got < numwant || (get_intervals && setme[2 * got - 1] == b - 1));
                  ++b)
@@ -1413,7 +1412,7 @@ void tr_peerMgrPieceCompleted(tr_torrent* tor, tr_piece_index_t p)
 
     if (pieceCameFromPeers) /* webseed downloads don't belong in announce totals */
     {
-        tr_announcerAddBytes(tor, TR_ANN_DOWN, tr_torPieceCountBytes(tor, p));
+        tr_announcerAddBytes(tor, TR_ANN_DOWN, tor->countBytesInPiece(p));
     }
 
     /* bookkeeping */
@@ -1480,7 +1479,7 @@ static void peerCallbackFunc(tr_peer* peer, tr_peer_event const* e, void* vs)
         {
             tr_block_index_t b = _tr_block(s->tor, e->pieceIndex, e->offset);
 
-            if (b < s->tor->blockCount)
+            if (b < s->tor->n_blocks)
             {
                 removeRequestFromTables(s, b, peer);
             }
@@ -1925,7 +1924,7 @@ tr_pex* tr_peerMgrCompact6ToPex(
 void tr_peerMgrGotBadPiece(tr_torrent* tor, tr_piece_index_t pieceIndex)
 {
     tr_swarm* s = tor->swarm;
-    uint32_t const byteCount = tr_torPieceCountBytes(tor, pieceIndex);
+    uint32_t const byteCount = tor->countBytesInPiece(pieceIndex);
 
     for (int i = 0, n = tr_ptrArraySize(&s->peers); i != n; ++i)
     {

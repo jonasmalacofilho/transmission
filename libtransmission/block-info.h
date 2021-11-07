@@ -36,7 +36,7 @@ struct tr_block_info
         initBlockInfo(tm.total_size, tm.piece_size);
     }
 
-    constexpr tr_piece_index_t blockPiece(tr_block_index_t block) const
+    constexpr tr_piece_index_t pieceForBlock(tr_block_index_t block) const
     {
         return block / n_blocks_in_piece;
     }
@@ -51,6 +51,26 @@ struct tr_block_info
     {
         // how many bytes are in this block?
         return block + 1 == n_blocks ? final_block_size : block_size;
+    }
+
+    constexpr uint64_t totalOffset(tr_piece_index_t index, uint32_t offset, uint32_t length = 0) const
+    {
+        auto ret = piece_size;
+        ret *= index;
+        ret += offset;
+        ret += length;
+        return ret;
+    }
+
+    constexpr tr_block_range blockRangeForPiece(tr_piece_index_t piece) const
+    {
+        uint64_t offset = piece_size;
+        offset *= piece;
+        tr_block_index_t const first_block = offset / block_size;
+        offset += countBytesInPiece(piece) - 1;
+        tr_block_index_t const final_block = offset / block_size;
+
+        return { first_block, final_block };
     }
 
     static uint32_t bestBlockSize(uint64_t piece_size);
