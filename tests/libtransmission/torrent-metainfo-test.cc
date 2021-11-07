@@ -132,7 +132,7 @@ TEST(TorrentMetainfoTest, SingleFile)
 
 TEST(TorrentMetainfoTest, CreationDateIsOptional)
 {
-    // This torrent is like 'single-file.torrent' but has no creation date
+    // this torrent is like 'single-file.torrent' but has no creation date
 
     tr_error* error = nullptr;
     auto const filename = std::string{ AssetsPath } + std::string{ "/no-creation-date.torrent" };
@@ -148,6 +148,20 @@ TEST(TorrentMetainfoTest, CreationDateIsOptional)
     EXPECT_EQ(6, info.size);
 
     tr_torrentMetainfoFree(tm);
+}
+
+TEST(TorrentMetainfoTest, ChecksPieceCount)
+{
+    // this torrent is like 'single-file.torrent' but has too much piece data
+
+    tr_error* error = nullptr;
+    auto const filename = std::string{ AssetsPath } + std::string{ "/wrong-piece-count.torrent" };
+
+    EXPECT_EQ(nullptr, tr_torrentMetainfoNewFromFile(filename.c_str(), &error));
+    EXPECT_NE(nullptr, error);
+    EXPECT_EQ(TR_ERROR_EINVAL, error->code);
+
+    tr_error_clear(&error);
 }
 
 TEST(TorrentMetainfoTest, MultiFile)
@@ -188,10 +202,6 @@ TEST(TorrentMetainfoTest, MultiFile)
     EXPECT_EQ(0, tracker_info.tier);
 
     tr_torrentMetainfoFree(tm);
-}
-
-TEST(TorrentMetainfoTest, ChecksPieceCount)
-{
 }
 
 TEST(TorrentMetainfoTest, Pieces)

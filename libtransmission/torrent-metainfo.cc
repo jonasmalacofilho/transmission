@@ -447,12 +447,6 @@ char const* parseImpl(tr_torrent_metainfo& setme, tr_variant* meta)
         return "'info' dict 'piece length' is missing or has an invalid value";
     }
 
-    // do the size and piece size match up?
-    if (uint64_t(setme.piece_count) != (setme.size + setme.piece_size - 1) / setme.piece_size)
-    {
-        return "files";
-    }
-
     // pieces
     if (tr_variantDictFindStrView(info_dict, TR_KEY_pieces, &sv) && (std::size(sv) % SHA_DIGEST_LENGTH == 0))
     {
@@ -476,6 +470,13 @@ char const* parseImpl(tr_torrent_metainfo& setme, tr_variant* meta)
     if (std::empty(setme.files) || setme.size == 0)
     {
         return "no files found";
+    }
+
+    // do the size and piece size match up?
+    auto const expected_piece_count = (setme.size + (setme.piece_size - 1)) / setme.piece_size;
+    if (uint64_t(setme.piece_count) != expected_piece_count)
+    {
+        return "piece count and file sizes do not match";
     }
 
     parseAnnounce(setme, meta);
