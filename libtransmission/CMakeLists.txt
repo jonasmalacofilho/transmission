@@ -11,6 +11,7 @@ set(PROJECT_FILES
   announcer.cc
   bandwidth.cc
   bitfield.cc
+  block-info.cc
   blocklist.cc
   cache.cc
   clients.cc
@@ -127,7 +128,7 @@ set(${PROJECT_NAME}_PUBLIC_HEADERS
     quark.h
     rpcimpl.h
     session-id.h
-    torrent-metainfo.h
+    torrent-metainfo-public.h
     tr-assert.h
     tr-getopt.h
     tr-macros.h
@@ -145,6 +146,7 @@ set(${PROJECT_NAME}_PRIVATE_HEADERS
     announcer.h
     bandwidth.h
     bitfield.h
+    block-info.h
     blocklist.h
     cache.h
     clients.h
@@ -175,7 +177,7 @@ set(${PROJECT_NAME}_PRIVATE_HEADERS
     stats.h
     subprocess.h
     torrent-magnet.h
-    torrent-metainfo-private.h
+    torrent-metainfo.h
     torrent.h
     tr-dht.h
     tr-lpd.h

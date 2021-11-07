@@ -27,7 +27,7 @@
 #include "file.h"
 #include "quark.h"
 #include "session.h" /* tr_sessionLock(), tr_sessionUnlock() */
-#include "torrent-metainfo-private.h"
+#include "torrent-metainfo.h"
 #include "tr-assert.h"
 #include "tr-macros.h"
 #include "utils.h" /* TR_GNUC_PRINTF */

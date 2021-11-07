@@ -8,13 +8,13 @@
 
 #include "transmission.h"
 
-#include "torrent-metainfo-private.h"
+#include "block-metainfo.h"
 
 #include <gtest/gtest.h>
 
 using namespace std::literals;
 
-TEST(BlockMetainfoTest, DoesNotCrashOnZeroPieceSize)
+TEST(BlockInfoTest, DoesNotCrashOnZeroPieceSize)
 {
     auto block = tr_block_metainfo(0, 0);
     EXPECT_EQ(0, block.n_blocks);
@@ -25,7 +25,7 @@ TEST(BlockMetainfoTest, DoesNotCrashOnZeroPieceSize)
     EXPECT_EQ(0, block.final_piece_size);
 }
 
-TEST(BlockMetainfoTest, FinalPieceHasRemainder)
+TEST(BlockInfoTest, FinalPieceHasRemainder)
 {
     auto const total_size = 2290895707ULL;
     auto const piece_size = 2097152ULL;
@@ -39,7 +39,7 @@ TEST(BlockMetainfoTest, FinalPieceHasRemainder)
     EXPECT_EQ(805723, block.final_piece_size);
 }
 
-TEST(BlockMetainfoTest, FinalPiecePerfectFit)
+TEST(BlockInfoTest, FinalPiecePerfectFit)
 {
     auto const total_size = 1048576ULL;
     auto const piece_size = 131072ULL;
