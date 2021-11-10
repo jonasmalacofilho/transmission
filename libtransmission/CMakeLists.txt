@@ -31,7 +31,7 @@ set(PROJECT_FILES
   handshake.cc
   inout.cc
   log.cc
-  magnet.cc
+  magnet-metainfo.cc
   makemeta.cc
   metainfo.cc
   natpmp.cc
@@ -75,6 +75,7 @@ set(PROJECT_FILES
   watchdir-win32.cc
   watchdir.cc
   web.cc
+  web-utils.cc
   webseed.cc
 )
 
@@ -120,6 +121,7 @@ else()
 endif()
 
 set(${PROJECT_NAME}_PUBLIC_HEADERS
+    ${PROJECT_BINARY_DIR}/version.h
     error-types.h
     error.h
     file.h
@@ -136,8 +138,8 @@ set(${PROJECT_NAME}_PUBLIC_HEADERS
     utils.h
     variant.h
     watchdir.h
+    web-utils.h
     web.h
-    ${PROJECT_BINARY_DIR}/version.h
 )
 
 set(${PROJECT_NAME}_PRIVATE_HEADERS
@@ -157,7 +159,7 @@ set(${PROJECT_NAME}_PRIVATE_HEADERS
     handshake.h
     history.h
     inout.h
-    magnet.h
+    magnet-metainfo.h
     metainfo.h
     mime-types.h
     natpmp_local.h

@@ -11,7 +11,7 @@ add_executable(libtransmission-test
     getopt-test.cc
     history-test.cc
     json-test.cc
-    magnet-test.cc
+    magnet-metainfo-test.cc
     makemeta-test.cc
     metainfo-test.cc
     move-test.cc
@@ -26,7 +26,8 @@ add_executable(libtransmission-test
     torrent-metainfo-test.cc
     utils-test.cc
     variant-test.cc
-    watchdir-test.cc)
+    watchdir-test.cc
+    web-utils-test.cc)
 
 target_compile_definitions(libtransmission-test
     PRIVATE

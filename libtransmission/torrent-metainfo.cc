@@ -22,6 +22,7 @@
 #include "tr-assert.h"
 #include "utils.h"
 #include "variant.h"
+#include "web-utils.h"
 #include "web.h"
 
 using namespace std::literals;
@@ -267,7 +268,7 @@ void parseAnnounce(tr_torrent_metainfo& setme, tr_variant* meta)
                 auto url = std::string_view{};
                 if (tr_variantGetStrView(tr_variantListChild(tier_v, j), &url))
                 {
-                    url = tr_strvstrip(url);
+                    url = tr_strvStrip(url);
                     if (tr_urlIsValidTracker(url))
                     {
                         auto const announce_url = tr_quark_new(url);
@@ -289,7 +290,7 @@ void parseAnnounce(tr_torrent_metainfo& setme, tr_variant* meta)
     auto url = std::string_view{};
     if (std::empty(setme.trackers) && tr_variantDictFindStrView(meta, TR_KEY_announce, &url))
     {
-        url = tr_strvstrip(url);
+        url = tr_strvStrip(url);
         if (tr_urlIsValidTracker(url))
         {
             auto const announce_url = tr_quark_new(url);
@@ -312,7 +313,7 @@ void parseAnnounce(tr_torrent_metainfo& setme, tr_variant* meta)
  */
 std::string fixWebseedUrl(tr_torrent_metainfo const& tm, std::string_view url)
 {
-    url = tr_strvstrip(url);
+    url = tr_strvStrip(url);
 
     if (std::size(tm.files) > 1 && !std::empty(url) && url.back() != '/')
     {
@@ -621,7 +622,7 @@ void tr_torrentMetainfoFree(tr_torrent_metainfo* tm)
 
 char* tr_torrentMetainfoMagnet(struct tr_torrent_metainfo const* tm)
 {
-    return tr_strvdup(tm->magnet());
+    return tr_strvDup(tm->magnet());
 }
 
 /// Info

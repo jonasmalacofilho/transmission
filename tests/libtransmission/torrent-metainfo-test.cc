@@ -14,6 +14,7 @@
 #include "crypto-utils.h"
 #include "error-types.h"
 #include "torrent-metainfo.h"
+#include "utils.h"
 
 #include <gtest/gtest.h>
 

@@ -21,22 +21,21 @@
 
 #include "transmission.h"
 
-#include "bandwidth.h" /* tr_bandwidth */
-#include "block-info.h"
+#include "bandwidth.h"
 #include "bitfield.h"
-#include "completion.h" /* tr_completion */
+#include "block-info.h"
+#include "completion.h"
 #include "file.h"
 #include "quark.h"
-#include "session.h" /* tr_sessionLock(), tr_sessionUnlock() */
+#include "session.h"
 #include "torrent-metainfo.h"
 #include "tr-assert.h"
-#include "tr-macros.h"
-#include "utils.h" /* TR_GNUC_PRINTF */
 
 class tr_swarm;
+struct tr_magnet_info;
+struct tr_session;
 struct tr_torrent;
 struct tr_torrent_tiers;
-struct tr_magnet_info;
 
 /**
 ***  Package-visible ctor API
