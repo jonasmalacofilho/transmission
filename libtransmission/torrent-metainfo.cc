@@ -530,7 +530,7 @@ char const* parseImpl(tr_torrent_metainfo& setme, tr_variant* meta, std::byte co
 
 } // namespace
 
-bool tr_torrent_metainfo::parse(std::byte const* benc, size_t benc_len, tr_error** error)
+bool tr_torrent_metainfo::parseBenc(std::byte const* benc, size_t benc_len, tr_error** error)
 {
     auto top = tr_variant{};
     auto const benc_parse_err = tr_variantFromBenc(&top, benc, benc_len);
@@ -551,34 +551,6 @@ bool tr_torrent_metainfo::parse(std::byte const* benc, size_t benc_len, tr_error
     return true;
 }
 
-std::string tr_torrent_metainfo::magnet() const
-{
-    auto s = std::string{};
-
-    s += "magnet:?xt=urn:btih:"sv;
-    s += infoHashString();
-
-    if (!std::empty(name))
-    {
-        s += "&dn="sv;
-        tr_http_escape(s, name, true);
-    }
-
-    for (auto const& it : trackers)
-    {
-        s += "&tr="sv;
-        tr_http_escape(s, tr_quark_get_string_view(it.second.announce_url), true);
-    }
-
-    for (auto const& webseed : webseed_urls)
-    {
-        s += "&ws="sv;
-        tr_http_escape(s, webseed, true);
-    }
-
-    return s;
-}
-
 //// Public API
 
 /// Lifecycle
@@ -586,7 +558,7 @@ std::string tr_torrent_metainfo::magnet() const
 tr_torrent_metainfo* tr_torrentMetainfoNewFromData(char const* data, size_t data_len, struct tr_error** error)
 {
     auto* tm = new tr_torrent_metainfo{};
-    if (!tm->parse(reinterpret_cast<std::byte const*>(data), data_len, error))
+    if (!tm->parseBenc(reinterpret_cast<std::byte const*>(data), data_len, error))
     {
         delete tm;
         return nullptr;
@@ -604,7 +576,7 @@ tr_torrent_metainfo* tr_torrentMetainfoNewFromFile(char const* filename, struct 
     }
 
     auto* tm = new tr_torrent_metainfo{};
-    if (!tm->parse(std::data(benc), std::size(benc), error))
+    if (!tm->parseBenc(std::data(benc), std::size(benc), error))
     {
         delete tm;
         return nullptr;

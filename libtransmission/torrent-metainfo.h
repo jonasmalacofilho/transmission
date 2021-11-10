@@ -19,33 +19,13 @@
 #include "transmission.h"
 
 #include "quark.h"
+#include "magnet-metainfo.h"
 #include "torrent-metainfo-public.h"
 #include "tr-assert.h"
 
-struct tr_torrent_metainfo
+struct tr_torrent_metainfo : public tr_magnet_metainfo
 {
-    bool parse(std::byte const* benc, size_t benc_len, tr_error** error = nullptr);
-
-    std::string magnet() const;
-
-    struct tracker_t
-    {
-        tr_quark announce_url;
-        tr_quark scrape_url;
-        tr_tracker_tier_t tier;
-
-        tracker_t(tr_quark announce_in, tr_quark scrape_in, tr_tracker_tier_t tier_in)
-            : announce_url{ announce_in }
-            , scrape_url{ scrape_in }
-            , tier{ tier_in }
-        {
-        }
-
-        bool operator<(tracker_t const& that) const
-        {
-            return announce_url < that.announce_url;
-        }
-    };
+    bool parseBenc(std::byte const* benc, size_t benc_len, tr_error** error = nullptr);
 
     struct file_t
     {
@@ -66,23 +46,11 @@ struct tr_torrent_metainfo
 
     std::string comment;
     std::string creator;
-    std::string name;
     std::string source;
 
-    std::multimap<tr_tracker_tier_t, tracker_t> trackers;
-    std::vector<std::string> webseed_urls;
     std::vector<tr_sha1_digest_t> pieces;
     std::vector<file_t> files;
     std::vector<uint64_t> file_sizes;
-
-    tr_sha1_digest_string_t info_hash_chars;
-    tr_sha1_digest_t info_hash;
-
-    std::string_view infoHashString() const
-    {
-        // trim one byte off the end because of zero termination
-        return std::string_view{ std::data(info_hash_chars), std::size(info_hash_chars) - 1 };
-    }
 
     // Location of the bencoded info dict in the entire bencoded torrent data.
     // Used when loading pieces of it to sent to magnet peers.
