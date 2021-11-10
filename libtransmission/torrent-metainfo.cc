@@ -652,3 +652,75 @@ tr_torrent_metainfo_tracker_info* tr_torrentMetainfoTracker(
     setme->tier = tracker.tier;
     return setme;
 }
+
+/// Transitional
+
+// TODO: move this to torrent-ctor and fill in the 'fixme'
+void tr_torrent_metainfo::setInfo(tr_info& setme) const
+{
+    setme.comment = tr_strvDup(this->comment);
+    setme.creator = tr_strvDup(this->creator);
+    setme.dateCreated = this->time_created;
+    setme.isFolder = std::size(this->files) != 1;
+    setme.isPrivate = this->is_private;
+    setme.name = tr_strvDup(this->name); // FIXME
+    setme.originalName = tr_strvDup(this->name);
+    setme.pieceCount = this->n_pieces;
+    setme.pieceSize = this->piece_size;
+    setme.pieces = static_cast<tr_sha1_digest_t*>(
+        tr_memdup(std::data(this->pieces), sizeof(tr_sha1_digest_t) * std::size(this->pieces)));
+    setme.source = tr_strvDup(this->source);
+    setme.torrent = nullptr; // FIXME
+    setme.totalSize = this->total_size;
+
+    std::copy_n(std::data(this->info_hash), std::size(this->info_hash), reinterpret_cast<std::byte*>(setme.hash));
+
+    auto const hashstr = this->infoHashString();
+    std::copy(std::begin(hashstr), std::end(hashstr), setme.hashString);
+
+    setme.webseedCount = std::size(this->webseed_urls);
+    setme.webseeds = tr_new(char*, setme.webseedCount);
+    std::transform(
+        std::begin(this->webseed_urls),
+        std::end(this->webseed_urls),
+        setme.webseeds,
+        [](auto const& url) { return tr_strvDup(url); });
+
+    int tracker_id = 0;
+    setme.trackerCount = std::size(this->trackers);
+    setme.trackers = tr_new(tr_tracker_info, setme.trackerCount);
+    std::transform(
+        std::begin(this->trackers),
+        std::end(this->trackers),
+        setme.trackers,
+        [&tracker_id](auto const& it)
+        {
+            auto info = tr_tracker_info{};
+            info.tier = it.first;
+            info.announce = tr_strvDup(tr_quark_get_string_view(it.second.announce_url));
+            info.scrape = tr_strvDup(tr_quark_get_string_view(it.second.scrape_url));
+            info.id = ++tracker_id;
+            return info;
+        });
+
+    setme.fileCount = std::size(files);
+    setme.files = tr_new(tr_file, setme.fileCount);
+    for (size_t i = 0, n = setme.fileCount; i < n; ++i)
+    {
+        auto& in = this->files[i];
+        auto& out = setme.files[i];
+        out.mtime = 0;
+        out.length = in.size;
+        out.name = tr_strvDup(in.path);
+        out.firstPiece = in.first_piece;
+        out.lastPiece = in.final_piece;
+        out.priority = 0; // FIXME
+        out.dnd = false; // FIXME
+        out.is_renamed = in.is_renamed;
+    }
+}
+
+void tr_torrentMetainfoSetInfo(tr_torrent_metainfo const* tm, tr_info* setme)
+{
+    tm->setInfo(*setme);
+}

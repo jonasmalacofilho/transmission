@@ -158,7 +158,7 @@ bool tr_magnet_metainfo::parseMagnet(std::string_view magnet_link, tr_error** er
     auto const parsed = tr_urlParse(magnet_link);
     if (!parsed || parsed->scheme != "magnet"sv)
     {
-        tr_error_set(error, TR_ERROR_EINVAL, "Error parsing URL");
+        tr_error_set_literal(error, TR_ERROR_EINVAL, "Error parsing URL");
         return false;
     }
 
@@ -241,46 +241,4 @@ bool tr_magnet_metainfo::convertAnnounceToScrape(std::string& out, std::string_v
     }
 
     return false;
-}
-
-void tr_magnet_metainfo::toVariant(tr_variant* top) const
-{
-    tr_variantInitDict(top, 4);
-
-    // announce list
-    auto n = std::size(this->trackers);
-    if (n == 1)
-    {
-        tr_variantDictAddStr(top, TR_KEY_announce, tr_quark_get_string_view(std::begin(this->trackers)->second.announce_url));
-    }
-    else
-    {
-        auto* list = tr_variantDictAddList(top, TR_KEY_announce_list, n);
-        for (auto const& pair : this->trackers)
-        {
-            tr_variantListAddStr(tr_variantListAddList(list, 1), tr_quark_get_string_view(pair.second.announce_url));
-        }
-    }
-
-    // webseeds
-    n = std::size(this->webseed_urls);
-    if (n != 0)
-    {
-        tr_variant* list = tr_variantDictAddList(top, TR_KEY_url_list, n);
-
-        for (auto& url : this->webseed_urls)
-        {
-            tr_variantListAddStr(list, url);
-        }
-    }
-
-    // nonstandard keys
-    auto* const d = tr_variantDictAddDict(top, TR_KEY_magnet_info, 2);
-
-    tr_variantDictAddRaw(d, TR_KEY_info_hash, std::data(this->info_hash), std::size(this->info_hash));
-
-    if (!std::empty(this->name))
-    {
-        tr_variantDictAddStr(d, TR_KEY_display_name, this->name);
-    }
 }

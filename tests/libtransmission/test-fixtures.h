@@ -381,7 +381,9 @@ protected:
         EXPECT_NE(nullptr, metainfo);
         EXPECT_LT(size_t{ 0 }, metainfo_len);
         auto* ctor = tr_ctorNew(session_);
-        tr_ctorSetMetainfo(ctor, reinterpret_cast<uint8_t*>(metainfo), metainfo_len);
+        tr_error* error = nullptr;
+        tr_ctorSetMetainfo(ctor, reinterpret_cast<uint8_t*>(metainfo), metainfo_len, &error);
+        EXPECT_EQ(nullptr, error);
         tr_ctorSetPaused(ctor, TR_FORCE, true);
         tr_free(metainfo);
 

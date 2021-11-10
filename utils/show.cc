@@ -16,11 +16,14 @@
 #include <event2/buffer.h>
 
 #include <libtransmission/transmission.h>
+
+#include <libtransmission/error.h>
+#include <libtransmission/torrent-metainfo-public.h>
 #include <libtransmission/tr-getopt.h>
 #include <libtransmission/utils.h>
-#include <libtransmission/web-utils.h> /* tr_webGetResponseStr() */
 #include <libtransmission/variant.h>
 #include <libtransmission/version.h>
+#include <libtransmission/web-utils.h>
 
 #include "units.h"
 
@@ -311,10 +314,6 @@ static void doScrape(tr_info const* inf)
 
 int tr_main(int argc, char* argv[])
 {
-    int err;
-    tr_info inf;
-    tr_ctor* ctor;
-
     tr_logSetLevel(TR_LOG_ERROR);
     tr_formatter_mem_init(MEM_K, MEM_K_STR, MEM_M_STR, MEM_G_STR, MEM_T_STR);
     tr_formatter_size_init(DISK_K, DISK_K_STR, DISK_M_STR, DISK_G_STR, DISK_T_STR);
@@ -327,7 +326,7 @@ int tr_main(int argc, char* argv[])
 
     if (showVersion)
     {
-        fprintf(stderr, MY_NAME " " LONG_VERSION_STRING "\n");
+        fprintf(stderr, "%s", MY_NAME " " LONG_VERSION_STRING "\n");
         return EXIT_SUCCESS;
     }
 
@@ -341,40 +340,41 @@ int tr_main(int argc, char* argv[])
     }
 
     /* try to parse the .torrent file */
-    ctor = tr_ctorNew(nullptr);
-    tr_ctorSetMetainfoFromFile(ctor, filename);
-    err = tr_torrentParse(ctor, &inf);
-    tr_ctorFree(ctor);
-
-    if (err != TR_PARSE_OK)
+    tr_error* error = nullptr;
+    auto* tm = tr_torrentMetainfoNewFromFile(filename, &error);
+    if (error != nullptr)
     {
-        fprintf(stderr, "Error parsing .torrent file \"%s\"\n", filename);
+        fprintf(stderr, "Error parsing .torrent file \"%s\": %s (%d)\n", filename, error->message, error->code);
         return EXIT_FAILURE;
     }
 
+    auto info = tr_info{};
+    tr_torrentMetainfoSetInfo(tm, &info);
+
     if (magnetFlag)
     {
-        doShowMagnet(&inf);
+        doShowMagnet(&info);
     }
     else
     {
-        printf("Name: %s\n", inf.name);
+        printf("Name: %s\n", info.name);
         printf("File: %s\n", filename);
         printf("\n");
         fflush(stdout);
 
         if (scrapeFlag)
         {
-            doScrape(&inf);
+            doScrape(&info);
         }
         else
         {
-            showInfo(&inf);
+            showInfo(&info);
         }
     }
 
     /* cleanup */
     putc('\n', stdout);
-    tr_metainfoFree(&inf);
+    tr_metainfoFree(&info);
+    tr_torrentMetainfoFree(tm);
     return EXIT_SUCCESS;
 }

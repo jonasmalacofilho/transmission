@@ -1678,24 +1678,29 @@ static void gotMetadataFromURL(
         tr_webGetResponseStr(response_code),
         response_byte_count);
 
-    if (response_code == 200 || response_code == 221) /* http or ftp success.. */
+    if (response_code < 200 || response_code >= 300)
     {
-        tr_ctorSetMetainfo(data->ctor, response, response_byte_count);
-        addTorrentImpl(data->data, data->ctor);
-    }
-    else
-    {
-        char result[1024];
-        tr_snprintf(
-            result,
-            sizeof(result),
+        auto* const errstr = tr_strdup_printf(
             "gotMetadataFromURL: http error %ld: %s",
             response_code,
             tr_webGetResponseStr(response_code));
-        tr_idle_function_done(data->data, result);
+        tr_idle_function_done(data->data, errstr);
+        tr_free(errstr);
     }
 
-    tr_free(data);
+    tr_error* error = nullptr;
+    if (!tr_ctorSetMetainfo(data->ctor, response, response_byte_count, &error))
+    {
+        auto* const errstr = tr_strdup_printf(
+            "[gotMetadataFromURL] error parsing metainfo: %s (%d)",
+            error->message,
+            error->code);
+        tr_idle_function_done(data->data, errstr);
+        tr_free(errstr);
+        tr_error_clear(&error);
+    }
+
+    addTorrentImpl(data->data, data->ctor);
 }
 
 static bool isCurlURL(char const* filename)
@@ -1826,16 +1831,16 @@ static char const* torrentAdd(tr_session* session, tr_variant* args_in, tr_varia
         {
             auto len = size_t{};
             auto* const metainfo = static_cast<char*>(tr_base64_decode_str(metainfo_base64, &len));
-            tr_ctorSetMetainfo(ctor, (uint8_t*)metainfo, len);
+            tr_ctorSetMetainfo(ctor, (uint8_t*)metainfo, len, nullptr);
             tr_free(metainfo);
         }
         else if (strncmp(fname, "magnet:?", 8) == 0)
         {
-            tr_ctorSetMetainfoFromMagnetLink(ctor, fname);
+            tr_ctorSetMetainfoFromMagnetLink(ctor, fname, nullptr);
         }
         else
         {
-            tr_ctorSetMetainfoFromFile(ctor, fname);
+            tr_ctorSetMetainfoFromFile(ctor, fname, nullptr);
         }
 
         addTorrentImpl(idle_data, ctor);

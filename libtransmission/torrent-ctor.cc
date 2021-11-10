@@ -6,19 +6,21 @@
  *
  */
 
-#include <cerrno> /* EINVAL */
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "transmission.h"
+
+#include "error.h"
+#include "error-types.h"
 #include "file.h"
-#include "magnet-metainfo.h"
 #include "session.h"
-#include "torrent.h" /* tr_ctorGetSave() */
+#include "torrent-metainfo.h"
+#include "torrent.h"
 #include "tr-assert.h"
-#include "utils.h" /* tr_new0 */
-#include "variant.h"
+#include "utils.h"
 
 using namespace std::literals;
 
@@ -38,13 +40,14 @@ struct tr_ctor
     std::optional<bool> delete_source;
 
     tr_priority_t priority = TR_PRI_NORMAL;
-    bool isSet_metainfo = false;
-    tr_variant metainfo = {};
-    std::string source_file;
+    std::optional<tr_torrent_metainfo> tm;
 
     struct optional_args optional_args[2];
 
+    std::string source_file;
     std::string incomplete_dir;
+
+    std::vector<std::byte> contents;
 
     std::vector<tr_file_index_t> want;
     std::vector<tr_file_index_t> not_want;
@@ -62,28 +65,10 @@ struct tr_ctor
 ****
 ***/
 
-static void setSourceFile(tr_ctor* ctor, char const* source_file)
-{
-    ctor->source_file.assign(source_file ? source_file : "");
-}
-
 static void clearMetainfo(tr_ctor* ctor)
 {
-    if (ctor->isSet_metainfo)
-    {
-        ctor->isSet_metainfo = false;
-        tr_variantFree(&ctor->metainfo);
-    }
-
-    setSourceFile(ctor, nullptr);
-}
-
-int tr_ctorSetMetainfo(tr_ctor* ctor, void const* metainfo, size_t len)
-{
-    clearMetainfo(ctor);
-    auto const err = tr_variantFromBenc(&ctor->metainfo, metainfo, len);
-    ctor->isSet_metainfo = err == 0;
-    return err;
+    ctor->tm.reset();
+    ctor->source_file.clear();
 }
 
 char const* tr_ctorGetSourceFile(tr_ctor const* ctor)
@@ -91,73 +76,68 @@ char const* tr_ctorGetSourceFile(tr_ctor const* ctor)
     return ctor->source_file.c_str();
 }
 
-int tr_ctorSetMetainfoFromMagnetLink(tr_ctor* ctor, char const* magnet_link)
+bool tr_ctorSetMetainfo(tr_ctor* ctor, void const* benc, size_t benc_len, tr_error** error)
 {
-    auto mm = tr_magnet_metainfo{};
-    if (!mm.parseMagnet(magnet_link ? magnet_link : ""))
+    clearMetainfo(ctor);
+
+    auto tm = tr_torrent_metainfo{};
+    if (!tm.parseBenc(reinterpret_cast<std::byte const*>(benc), benc_len, error))
     {
-        return -1;
+        return false;
     }
 
-    auto tmp = tr_variant{};
-    mm.toVariant(&tmp);
-    auto len = size_t{};
-    char* const str = tr_variantToStr(&tmp, TR_VARIANT_FMT_BENC, &len);
-    auto const err = tr_ctorSetMetainfo(ctor, (uint8_t const*)str, len);
-    tr_free(str);
-    tr_variantFree(&tmp);
-
-    return err;
+    ctor->tm = std::move(tm);
+    return true;
 }
 
-int tr_ctorSetMetainfoFromFile(tr_ctor* ctor, char const* filename)
+bool tr_ctorSetMetainfoFromMagnetLink(tr_ctor* ctor, char const* magnet_link, tr_error** error)
 {
-    auto len = size_t{};
-    auto* const metainfo = tr_loadFile(filename, &len, nullptr);
-
-    auto err = int{};
-    if (metainfo != nullptr && len != 0)
+    if (magnet_link == nullptr)
     {
-        err = tr_ctorSetMetainfo(ctor, metainfo, len);
-    }
-    else
-    {
-        clearMetainfo(ctor);
-        err = 1;
+        tr_error_set_literal(error, TR_ERROR_EINVAL, "no magnet link specified");
+        return false;
     }
 
-    setSourceFile(ctor, filename);
-
-    /* if no `name' field was set, then set it from the filename */
-    if (ctor->isSet_metainfo)
+    auto tm = tr_torrent_metainfo{};
+    if (!tm.parseMagnet(magnet_link, error))
     {
-        tr_variant* info = nullptr;
-
-        if (tr_variantDictFindDict(&ctor->metainfo, TR_KEY_info, &info))
-        {
-            auto name = std::string_view{};
-
-            if (!tr_variantDictFindStrView(info, TR_KEY_name_utf_8, &name) &&
-                !tr_variantDictFindStrView(info, TR_KEY_name, &name))
-            {
-                name = ""sv;
-            }
-
-            if (std::empty(name))
-            {
-                char* base = tr_sys_path_basename(filename, nullptr);
-
-                if (base != nullptr)
-                {
-                    tr_variantDictAddStr(info, TR_KEY_name, base);
-                    tr_free(base);
-                }
-            }
-        }
+        return false;
     }
 
-    tr_free(metainfo);
-    return err;
+    ctor->tm = std::move(tm);
+    return true;
+}
+
+bool tr_ctorSetMetainfoFromFile(tr_ctor* ctor, char const* filename, tr_error** error)
+{
+    if (filename == nullptr)
+    {
+        tr_error_set_literal(error, TR_ERROR_EINVAL, "no file specified");
+        return false;
+    }
+
+    auto const filename_sv = std::string_view{ filename };
+    if (!tr_loadFile(ctor->contents, filename_sv, error))
+    {
+        return false;
+    }
+
+    if (!tr_ctorSetMetainfo(ctor, std::data(ctor->contents), std::size(ctor->contents), error))
+    {
+        return false;
+    }
+
+    ctor->source_file = filename_sv;
+
+    // if no `name' field was set, then set it from the filename
+    if (ctor->tm && std::empty(ctor->tm->name))
+    {
+        char* base = tr_sys_path_basename(filename, nullptr);
+        ctor->tm->name = base;
+        tr_free(base);
+    }
+
+    return true;
 }
 
 /***
@@ -344,6 +324,7 @@ bool tr_ctorGetIncompleteDir(tr_ctor const* ctor, char const** setme)
     return true;
 }
 
+#if 0
 bool tr_ctorGetMetainfo(tr_ctor const* ctor, tr_variant const** setme)
 {
     if (!ctor->isSet_metainfo)
@@ -358,6 +339,7 @@ bool tr_ctorGetMetainfo(tr_ctor const* ctor, tr_variant const** setme)
 
     return true;
 }
+#endif
 
 tr_session* tr_ctorGetSession(tr_ctor const* ctor)
 {

@@ -6,17 +6,18 @@
  *
  */
 
-#include "transmission.h"
-
-#include "metainfo.h"
-#include "utils.h"
-
-#include "gtest/gtest.h"
-
 #include <array>
 #include <cerrno>
 #include <cstring>
 #include <string_view>
+
+#include "gtest/gtest.h"
+
+#include "transmission.h"
+
+#include "error.h"
+#include "metainfo.h"
+#include "utils.h"
 
 using namespace std::literals;
 
@@ -32,7 +33,9 @@ TEST(Metainfo, magnetLink)
         "&ws=http%3A%2F%2Ftransmissionbt.com";
 
     auto* ctor = tr_ctorNew(nullptr);
-    tr_ctorSetMetainfoFromMagnetLink(ctor, MagnetLink);
+    tr_error* error = nullptr;
+    tr_ctorSetMetainfoFromMagnetLink(ctor, MagnetLink, &error);
+    EXPECT_EQ(nullptr, error);
     auto inf = tr_info{};
     auto const parse_result = tr_torrentParse(ctor, &inf);
     EXPECT_EQ(TR_PARSE_OK, parse_result);
@@ -94,15 +97,18 @@ TEST(Metainfo, bucket)
     for (auto const& test : tests)
     {
         auto* ctor = tr_ctorNew(nullptr);
-        int const err = tr_ctorSetMetainfo(ctor, std::data(test.benc), std::size(test.benc));
-        EXPECT_EQ(test.expected_benc_err, err);
+        tr_error* error = nullptr;
+        auto const ok = tr_ctorSetMetainfo(ctor, std::data(test.benc), std::size(test.benc), &error);
+        EXPECT_EQ(test.expected_benc_err, !ok);
+        EXPECT_EQ(test.expected_benc_err, (error != nullptr));
 
-        if (err == 0)
+        if (ok)
         {
             tr_parse_result const parse_result = tr_torrentParse(ctor, nullptr);
             EXPECT_EQ(test.expected_parse_result, parse_result);
         }
 
+        tr_error_clear(&error);
         tr_ctorFree(ctor);
     }
 }

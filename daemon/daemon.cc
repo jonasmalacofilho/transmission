@@ -24,6 +24,7 @@
 #include <event2/event.h>
 
 #include <libtransmission/transmission.h>
+
 #include <libtransmission/error.h>
 #include <libtransmission/file.h>
 #include <libtransmission/tr-getopt.h>
@@ -233,9 +234,17 @@ static tr_watchdir_status onFileAdded(tr_watchdir_t dir, char const* name, void*
 
     char* filename = tr_buildPath(tr_watchdir_get_path(dir), name, nullptr);
     tr_ctor* ctor = tr_ctorNew(session);
-    int err = tr_ctorSetMetainfoFromFile(ctor, filename);
 
-    if (err == 0)
+    int err = 0;
+    tr_error* error = nullptr;
+    tr_ctorSetMetainfoFromFile(ctor, filename, &error);
+    if (error != nullptr)
+    {
+        tr_logAddError("Error setting metainfo: %s (%d)\n", error->message, error->code);
+        tr_error_clear(&error);
+        err = TR_PARSE_ERR;
+    }
+    else
     {
         tr_torrentNew(ctor, &err, nullptr);
 
@@ -269,10 +278,6 @@ static tr_watchdir_status onFileAdded(tr_watchdir_t dir, char const* name, void*
                 tr_free(new_filename);
             }
         }
-    }
-    else
-    {
-        err = TR_PARSE_ERR;
     }
 
     tr_ctorFree(ctor);

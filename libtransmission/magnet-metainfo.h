@@ -17,8 +17,6 @@
 #include <string_view>
 #include <vector>
 
-struct tr_variant;
-
 #include "transmission.h"
 
 #include "error.h"
@@ -29,8 +27,6 @@ struct tr_magnet_metainfo
     bool parseMagnet(std::string_view magnet_link, tr_error** error = nullptr);
 
     std::string magnet() const;
-
-    void toVariant(tr_variant*) const;
 
     static bool convertAnnounceToScrape(std::string& setme, std::string_view announce_url);
 

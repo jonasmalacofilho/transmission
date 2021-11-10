@@ -84,3 +84,5 @@ struct tr_torrent_metainfo_tracker_info* tr_torrentMetainfoTracker(
     struct tr_torrent_metainfo const* tm,
     size_t nth,
     struct tr_torrent_metainfo_tracker_info* setme);
+
+TR_DEPRECATED void tr_torrentMetainfoSetInfo(struct tr_torrent_metainfo const* tm, struct tr_info* setme);

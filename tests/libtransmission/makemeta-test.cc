@@ -69,7 +69,10 @@ protected:
         // now let's check our work: parse the  .torrent file
         auto* ctor = tr_ctorNew(nullptr);
         sync();
-        tr_ctorSetMetainfoFromFile(ctor, torrent_file);
+        tr_error* error = nullptr;
+        auto const ok = tr_ctorSetMetainfoFromFile(ctor, torrent_file, &error);
+        EXPECT_TRUE(ok);
+        EXPECT_EQ(nullptr, error);
         auto const parse_result = tr_torrentParse(ctor, &inf);
         EXPECT_EQ(TR_PARSE_OK, parse_result);
 

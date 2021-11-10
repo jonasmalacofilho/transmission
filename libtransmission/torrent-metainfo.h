@@ -27,6 +27,8 @@ struct tr_torrent_metainfo : public tr_magnet_metainfo
 {
     bool parseBenc(std::byte const* benc, size_t benc_len, tr_error** error = nullptr);
 
+    TR_DEPRECATED void setInfo(tr_info& setme) const;
+
     struct file_t
     {
         uint64_t size = 0; // size of the file, in bytes
@@ -50,7 +52,6 @@ struct tr_torrent_metainfo : public tr_magnet_metainfo
 
     std::vector<tr_sha1_digest_t> pieces;
     std::vector<file_t> files;
-    std::vector<uint64_t> file_sizes;
 
     // Location of the bencoded info dict in the entire bencoded torrent data.
     // Used when loading pieces of it to sent to magnet peers.

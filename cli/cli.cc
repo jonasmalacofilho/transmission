@@ -147,7 +147,7 @@ static void onTorrentFileDownloaded(
     void* vctor)
 {
     auto* ctor = static_cast<tr_ctor*>(vctor);
-    tr_ctorSetMetainfo(ctor, response, response_byte_count);
+    tr_ctorSetMetainfo(ctor, response, response_byte_count, nullptr);
     waitingOnWeb = false;
 }
 
@@ -305,11 +305,23 @@ int tr_main(int argc, char* argv[])
 
     if (fileContents != nullptr)
     {
-        tr_ctorSetMetainfo(ctor, fileContents, fileLength);
+        tr_error* error = nullptr;
+        tr_ctorSetMetainfo(ctor, fileContents, fileLength, &error);
+        if (error != nullptr)
+        {
+            fprintf(stderr, "Error setting torrent metainfo: %s (%d)\n", error->message, error->code);
+            tr_error_clear(&error);
+        }
     }
     else if (memcmp(torrentPath, "magnet:?", 8) == 0)
     {
-        tr_ctorSetMetainfoFromMagnetLink(ctor, torrentPath);
+        tr_error* error = nullptr;
+        tr_ctorSetMetainfoFromMagnetLink(ctor, torrentPath, &error);
+        if (error != nullptr)
+        {
+            fprintf(stderr, "Error setting torrent metainfo: %s (%d)\n", error->message, error->code);
+            tr_error_clear(&error);
+        }
     }
     else if (memcmp(torrentPath, "http", 4) == 0)
     {
