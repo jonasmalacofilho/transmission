@@ -13,12 +13,7 @@
 #include <string>
 #include <vector>
 
-#include <zlib.h>
-
 #include <event2/buffer.h>
-#include <event2/event.h>
-#include <event2/http.h>
-#include <event2/http_struct.h> /* TODO: eventually remove this */
 
 #include "transmission.h"
 
@@ -53,15 +48,6 @@ using namespace std::literals;
 #define MY_REALM "Transmission"
 
 #define dbgmsg(...) tr_logAddDeepNamed(MY_NAME, __VA_ARGS__)
-
-/***
-****
-***/
-
-static char const* get_current_session_id(tr_rpc_server* server)
-{
-    return tr_session_id_get_current(server->session->session_id);
-}
 
 /**
 ***
@@ -155,9 +141,7 @@ static void handle_upload(struct evhttp_request* req, tr_rpc_server* server)
         {
             if (tr_strcasestr(p.headers.c_str(), TR_RPC_SESSION_ID_HEADER) != nullptr)
             {
-                char const* ours = get_current_session_id(server);
-                size_t const ourlen = strlen(ours);
-                hasSessionId = ourlen <= std::size(p.body) && memcmp(p.body.c_str(), ours, ourlen) == 0;
+                hasSessionId = tr_strvStartsWith(p.body, server->deps_->sessionId());
                 break;
             }
         }
@@ -205,7 +189,7 @@ static void handle_upload(struct evhttp_request* req, tr_rpc_server* server)
 
                 if (have_source)
                 {
-                    tr_rpc_request_exec_json(server->session, &top, nullptr, nullptr);
+                    server->deps_->execJson(&top, nullptr, nullptr);
                 }
 
                 tr_variantFree(&top);
@@ -383,9 +367,9 @@ static void serve_file(struct evhttp_request* req, tr_rpc_server* server, char c
 
 static void handle_web_client(struct evhttp_request* req, tr_rpc_server* server)
 {
-    char const* webClientDir = tr_getWebClientDir(server->session);
+    auto const web_client_dir = server->deps_->webClientDir();
 
-    if (tr_str_is_empty(webClientDir))
+    if (std::empty(web_client_dir))
     {
         send_simple_response(
             req,
@@ -417,7 +401,7 @@ static void handle_web_client(struct evhttp_request* req, tr_rpc_server* server)
         {
             char* filename = tr_strdup_printf(
                 "%s%s%s",
-                webClientDir,
+                web_client_dir.c_str(),
                 TR_PATH_DELIMITER_STR,
                 tr_str_is_empty(subpath) ? "index.html" : subpath);
             serve_file(req, server, filename);
@@ -458,7 +442,7 @@ static void handle_rpc_from_json(struct evhttp_request* req, tr_rpc_server* serv
     data->req = req;
     data->server = server;
 
-    tr_rpc_request_exec_json(server->session, have_content ? &top : nullptr, rpc_response_func, data);
+    server->deps_->execJson(have_content ? &top : nullptr, rpc_response_func, data);
 
     if (have_content)
     {
@@ -485,7 +469,7 @@ static void handle_rpc(struct evhttp_request* req, tr_rpc_server* server)
             struct rpc_response_data* data = tr_new0(struct rpc_response_data, 1);
             data->req = req;
             data->server = server;
-            tr_rpc_request_exec_uri(server->session, q + 1, TR_BAD_SIZE, rpc_response_func, data);
+            server->deps_->execUri(q + 1, rpc_response_func, data);
             return;
         }
     }
@@ -556,9 +540,9 @@ static bool isHostnameAllowed(tr_rpc_server const* server, struct evhttp_request
 
 static bool test_session_id(tr_rpc_server* server, struct evhttp_request* req)
 {
-    char const* ours = get_current_session_id(server);
+    auto const ours = server->deps_->sessionId();
     char const* theirs = evhttp_find_header(req->input_headers, TR_RPC_SESSION_ID_HEADER);
-    bool const success = theirs != nullptr && strcmp(theirs, ours) == 0;
+    bool const success = theirs != nullptr && ours == theirs;
     return success;
 }
 
@@ -595,7 +579,7 @@ static void handle_request(struct evhttp_request* req, void* arg)
     {
         evhttp_add_header(req->output_headers, "Server", MY_REALM);
 
-        if (server->isAntiBruteForceEnabled && server->loginattempts >= server->antiBruteForceThreshold)
+        if (server->maxLoginAttemptsReached())
         {
             send_simple_response(req, 403, "<p>Too many unsuccessful login attempts. Please restart transmission-daemon.</p>");
             return;
@@ -631,20 +615,17 @@ static void handle_request(struct evhttp_request* req, void* arg)
         if (!isAuthorized(server, evhttp_find_header(req->input_headers, "Authorization")))
         {
             evhttp_add_header(req->output_headers, "WWW-Authenticate", "Basic realm=\"" MY_REALM "\"");
-            if (server->isAntiBruteForceEnabled)
-            {
-                ++server->loginattempts;
-            }
+            server->loginFailed();
 
             char* unauthuser = tr_strdup_printf(
-                "<p>Unauthorized User. %d unsuccessful login attempts.</p>",
-                server->loginattempts);
+                "<p>Unauthorized User. %zu unsuccessful login attempts.</p>",
+                server->loginAttempts());
             send_simple_response(req, 401, unauthuser);
             tr_free(unauthuser);
             return;
         }
 
-        server->loginattempts = 0;
+        server->loginSucceeded();
 
         auto uri = std::string_view{ req->uri };
         auto const location = tr_strvStartsWith(uri, server->url) ? uri.substr(std::size(server->url)) : ""sv;
@@ -682,7 +663,7 @@ static void handle_request(struct evhttp_request* req, void* arg)
 #ifdef REQUIRE_SESSION_ID
         else if (!test_session_id(server, req))
         {
-            char const* sessionId = get_current_session_id(server);
+            auto const session_id = server->deps_->sessionId();
             char* tmp = tr_strdup_printf(
                 "<p>Your request had an invalid session-id header.</p>"
                 "<p>To fix this, follow these steps:"
@@ -695,8 +676,8 @@ static void handle_request(struct evhttp_request* req, void* arg)
                 "attacks.</p>"
                 "<p><code>%s: %s</code></p>",
                 TR_RPC_SESSION_ID_HEADER,
-                sessionId);
-            evhttp_add_header(req->output_headers, TR_RPC_SESSION_ID_HEADER, sessionId);
+                session_id.c_str());
+            evhttp_add_header(req->output_headers, TR_RPC_SESSION_ID_HEADER, session_id.c_str());
             evhttp_add_header(req->output_headers, "Access-Control-Expose-Headers", TR_RPC_SESSION_ID_HEADER);
             send_simple_response(req, 409, tmp);
             tr_free(tmp);
@@ -732,7 +713,7 @@ static int rpc_server_start_retry(tr_rpc_server* server)
 
     if (server->start_retry_timer == nullptr)
     {
-        server->start_retry_timer = evtimer_new(server->session->event_base, rpc_server_on_start_retry, server);
+        server->start_retry_timer = evtimer_new(server->deps_->eventBase(), rpc_server_on_start_retry, server);
     }
 
     tr_timerAdd(server->start_retry_timer, retry_delay, 0);
@@ -761,7 +742,7 @@ static void startServer(void* vserver)
         return;
     }
 
-    struct evhttp* httpd = evhttp_new(server->session->event_base);
+    struct evhttp* httpd = evhttp_new(server->deps_->eventBase());
     evhttp_set_allowed_methods(httpd, EVHTTP_REQ_GET | EVHTTP_REQ_POST | EVHTTP_REQ_OPTIONS);
 
     char const* address = tr_rpcGetBindAddress(server);
@@ -800,29 +781,31 @@ static void startServer(void* vserver)
 
 static void stopServer(tr_rpc_server* server)
 {
-    TR_ASSERT(tr_amInEventThread(server->session));
+    server->deps_->lock();
 
     rpc_server_start_retry_cancel(server);
 
     struct evhttp* httpd = server->httpd;
 
-    if (httpd == nullptr)
+    if (httpd != nullptr)
     {
-        return;
+        char const* address = tr_rpcGetBindAddress(server);
+        int const port = server->port;
+
+        server->httpd = nullptr;
+        evhttp_free(httpd);
+
+        tr_logAddNamedDbg(MY_NAME, "Stopped listening on %s:%d", address, port);
     }
 
-    char const* address = tr_rpcGetBindAddress(server);
-    int const port = server->port;
-
-    server->httpd = nullptr;
-    evhttp_free(httpd);
-
-    tr_logAddNamedDbg(MY_NAME, "Stopped listening on %s:%d", address, port);
+    server->deps_->unlock();
 }
 
-static void onEnabledChanged(void* vserver)
+void tr_rpcSetEnabled(tr_rpc_server* server, bool isEnabled)
 {
-    auto* server = static_cast<tr_rpc_server*>(vserver);
+    server->deps_->lock();
+
+    server->isEnabled = isEnabled;
 
     if (!server->isEnabled)
     {
@@ -832,13 +815,8 @@ static void onEnabledChanged(void* vserver)
     {
         startServer(server);
     }
-}
 
-void tr_rpcSetEnabled(tr_rpc_server* server, bool isEnabled)
-{
-    server->isEnabled = isEnabled;
-
-    tr_runInEventThread(server->session, onEnabledChanged, server);
+    server->deps_->unlock();
 }
 
 bool tr_rpcIsEnabled(tr_rpc_server const* server)
@@ -846,29 +824,35 @@ bool tr_rpcIsEnabled(tr_rpc_server const* server)
     return server->isEnabled;
 }
 
-static void restartServer(void* vserver)
+static void restartServer(tr_rpc_server* server)
 {
-    auto* server = static_cast<tr_rpc_server*>(vserver);
-
-    if (server->isEnabled)
+    if (!server->isEnabled)
     {
-        stopServer(server);
-        startServer(server);
+        return;
     }
+
+    server->deps_->lock();
+
+    stopServer(server);
+    startServer(server);
+
+    server->deps_->unlock();
 }
 
 void tr_rpcSetPort(tr_rpc_server* server, tr_port port)
 {
     TR_ASSERT(server != nullptr);
 
-    if (server->port != port)
+    if (port == server->port)
     {
-        server->port = port;
+        return;
+    }
 
-        if (server->isEnabled)
-        {
-            tr_runInEventThread(server->session, restartServer, server);
-        }
+    server->port = port;
+
+    if (server->isEnabled)
+    {
+        restartServer(server);
     }
 }
 
@@ -994,30 +978,6 @@ char const* tr_rpcGetBindAddress(tr_rpc_server const* server)
     return tr_address_to_string(&server->bindAddress);
 }
 
-bool tr_rpcGetAntiBruteForceEnabled(tr_rpc_server const* server)
-{
-    return server->isAntiBruteForceEnabled;
-}
-
-void tr_rpcSetAntiBruteForceEnabled(tr_rpc_server* server, bool isEnabled)
-{
-    server->isAntiBruteForceEnabled = isEnabled;
-    if (!isEnabled)
-    {
-        server->loginattempts = 0;
-    }
-}
-
-int tr_rpcGetAntiBruteForceThreshold(tr_rpc_server const* server)
-{
-    return server->antiBruteForceThreshold;
-}
-
-void tr_rpcSetAntiBruteForceThreshold(tr_rpc_server* server, int badRequests)
-{
-    server->antiBruteForceThreshold = badRequests;
-}
-
 /****
 *****  LIFE CYCLE
 ****/
@@ -1028,8 +988,8 @@ static void missing_settings_key(tr_quark const q)
     tr_logAddNamedError(MY_NAME, _("Couldn't find settings key \"%s\""), str);
 }
 
-tr_rpc_server::tr_rpc_server(tr_session* session_in, tr_variant* settings)
-    : session{ session_in }
+tr_rpc_server::tr_rpc_server(std::unique_ptr<Dependencies>&& deps, tr_variant* settings)
+    : deps_{ std::move(deps) }
 {
     auto address = tr_address{};
     auto boolVal = bool{};
@@ -1158,7 +1118,7 @@ tr_rpc_server::tr_rpc_server(tr_session* session_in, tr_variant* settings)
     }
     else
     {
-        tr_rpcSetAntiBruteForceEnabled(this, boolVal);
+        useMaxLoginAttempts(boolVal);
     }
 
     key = TR_KEY_anti_brute_force_threshold;
@@ -1169,7 +1129,7 @@ tr_rpc_server::tr_rpc_server(tr_session* session_in, tr_variant* settings)
     }
     else
     {
-        tr_rpcSetAntiBruteForceThreshold(this, i);
+        setMaxLoginAttempts(i);
     }
 
     key = TR_KEY_rpc_bind_address;
@@ -1206,7 +1166,6 @@ tr_rpc_server::tr_rpc_server(tr_session* session_in, tr_variant* settings)
             tr_rpcGetBindAddress(this),
             (int)this->port,
             this->url.c_str());
-        tr_runInEventThread(session, startServer, this);
 
         if (this->isWhitelistEnabled)
         {
@@ -1217,19 +1176,19 @@ tr_rpc_server::tr_rpc_server(tr_session* session_in, tr_variant* settings)
         {
             tr_logAddNamedInfo(MY_NAME, "%s", _("Password required"));
         }
+
+        startServer(this);
     }
 
-    char const* webClientDir = tr_getWebClientDir(this->session);
-    if (!tr_str_is_empty(webClientDir))
+    auto const web_client_dir = deps_->webClientDir();
+    if (!std::empty(web_client_dir))
     {
-        tr_logAddNamedInfo(MY_NAME, _("Serving RPC and Web requests from directory '%s'"), webClientDir);
+        tr_logAddNamedInfo(MY_NAME, _("Serving RPC and Web requests from directory '%s'"), web_client_dir.c_str());
     }
 }
 
 tr_rpc_server::~tr_rpc_server()
 {
-    TR_ASSERT(tr_amInEventThread(this->session));
-
     stopServer(this);
 
     if (this->isStreamInitialized)

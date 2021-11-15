@@ -935,7 +935,52 @@ static void sessionSetImpl(void* vdata)
     }
 
     /* rpc server */
-    session->rpc_server_ = std::make_unique<tr_rpc_server>(session, settings);
+    {
+        struct Dependencies : public tr_rpc_server::Dependencies
+        {
+            Dependencies(tr_session* session)
+                : session_{ session }
+            {
+            }
+            ~Dependencies() override = default;
+            event_base* eventBase() const final
+            {
+                return session_->event_base;
+            }
+            std::string sessionId() const final
+            {
+                return tr_session_id_get_current(session_->session_id);
+            }
+            std::string webClientDir() const final
+            {
+                char const* web_client_dir = tr_getWebClientDir(session_);
+                return web_client_dir != nullptr ? web_client_dir : "";
+            }
+
+            void execJson(tr_variant const* parsed, tr_rpc_response_func callback, void* callback_user_data) final
+            {
+                tr_rpc_request_exec_json(session_, parsed, callback, callback_user_data);
+            }
+
+            void execUri(std::string_view uri, tr_rpc_response_func callback, void* callback_user_data) final
+            {
+                tr_rpc_request_exec_uri(session_, uri, callback, callback_user_data);
+            }
+            void lock() final
+            {
+                tr_sessionLock(session_);
+            }
+            void unlock() final
+            {
+                tr_sessionUnlock(session_);
+            }
+
+        private:
+            tr_session* const session_;
+        };
+
+        session->rpc_server_ = std::make_unique<tr_rpc_server>(std::make_unique<Dependencies>(session), settings);
+    }
 
     /* public addresses */
 
@@ -2742,32 +2787,33 @@ int tr_sessionGetQueueStalledMinutes(tr_session const* session)
     return session->queueStalledMinutes;
 }
 
-void tr_sessionSetAntiBruteForceThreshold(tr_session* session, int bad_requests)
+void tr_sessionSetAntiBruteForceThreshold(tr_session* session, size_t n)
 {
     TR_ASSERT(tr_isSession(session));
-    TR_ASSERT(bad_requests > 0);
-    tr_rpcSetAntiBruteForceThreshold(session->rpc_server_.get(), bad_requests);
+    TR_ASSERT(n > 0);
+
+    session->rpc_server_->setMaxLoginAttempts(n);
 }
 
-void tr_sessionSetAntiBruteForceEnabled(tr_session* session, bool is_enabled)
+size_t tr_sessionGetAntiBruteForceThreshold(tr_session const* session)
 {
     TR_ASSERT(tr_isSession(session));
 
-    tr_rpcSetAntiBruteForceEnabled(session->rpc_server_.get(), is_enabled);
+    return session->rpc_server_->maxLoginAttempts();
+}
+
+void tr_sessionSetAntiBruteForceEnabled(tr_session* session, bool enabled)
+{
+    TR_ASSERT(tr_isSession(session));
+
+    session->rpc_server_->useMaxLoginAttempts(enabled);
 }
 
 bool tr_sessionGetAntiBruteForceEnabled(tr_session const* session)
 {
     TR_ASSERT(tr_isSession(session));
 
-    return tr_rpcGetAntiBruteForceEnabled(session->rpc_server_.get());
-}
-
-int tr_sessionGetAntiBruteForceThreshold(tr_session const* session)
-{
-    TR_ASSERT(tr_isSession(session));
-
-    return tr_rpcGetAntiBruteForceThreshold(session->rpc_server_.get());
+    return session->rpc_server_->useMaxLoginAttempts();
 }
 
 std::vector<tr_torrent*> tr_sessionGetNextQueuedTorrents(tr_session* session, tr_direction direction, size_t num_wanted)

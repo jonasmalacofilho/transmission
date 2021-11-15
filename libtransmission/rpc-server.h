@@ -12,13 +12,14 @@
 #error only libtransmission should #include this header.
 #endif
 
+#include <cstddef>
+#include <memory>
 #include <list>
 #include <string>
 #include <string_view>
 
 #include <zlib.h>
 
-#include <event2/buffer.h>
 #include <event2/event.h>
 #include <event2/http.h>
 #include <event2/http_struct.h> /* TODO: eventually remove this */
@@ -26,15 +27,72 @@
 #include "transmission.h"
 
 #include "net.h"
+#include "rpcimpl.h"
 
 struct tr_variant;
 
 class tr_rpc_server
 {
 public:
-    tr_rpc_server(tr_session* session, tr_variant* settings);
+    struct Dependencies
+    {
+        virtual ~Dependencies() = default;
+        virtual event_base* eventBase() const = 0;
+        virtual std::string sessionId() const = 0;
+        virtual std::string webClientDir() const = 0;
+        virtual void execJson(tr_variant const* parsed, tr_rpc_response_func, void* callback_user_data) = 0;
+        virtual void execUri(std::string_view uri, tr_rpc_response_func, void* callback_user_data) = 0;
+        virtual void lock() = 0; // TODO(ckerr): RAII
+        virtual void unlock() = 0;
+    };
+
+    tr_rpc_server(std::unique_ptr<Dependencies>&& deps, tr_variant* settings);
     ~tr_rpc_server();
 
+    // block brute-force attacks
+
+    size_t constexpr maxLoginAttempts() const
+    {
+        return max_login_attempts_;
+    }
+
+    size_t constexpr loginAttempts() const
+    {
+        return login_attempts_;
+    }
+
+    void constexpr setMaxLoginAttempts(size_t n)
+    {
+        max_login_attempts_ = n;
+    }
+
+    bool constexpr useMaxLoginAttempts() const
+    {
+        return max_login_attempts_enabled_;
+    }
+
+    void constexpr useMaxLoginAttempts(bool enabled)
+    {
+        max_login_attempts_enabled_ = enabled;
+        login_attempts_ = 0;
+    }
+
+    bool constexpr maxLoginAttemptsReached() const
+    {
+        return useMaxLoginAttempts() && login_attempts_ >= maxLoginAttempts();
+    }
+
+    void constexpr loginFailed()
+    {
+        ++login_attempts_;
+    }
+
+    void constexpr loginSucceeded()
+    {
+        login_attempts_ = 0;
+    }
+
+public:
     z_stream stream = {};
 
     std::list<std::string> hostWhitelist;
@@ -48,20 +106,23 @@ public:
 
     struct event* start_retry_timer = nullptr;
     struct evhttp* httpd = nullptr;
-    tr_session* const session;
+
+    size_t max_login_attempts_;
+    size_t login_attempts_;
 
     int antiBruteForceThreshold = 0;
-    int loginattempts = 0;
     int start_retry_counter = 0;
 
     tr_port port = 0;
 
-    bool isAntiBruteForceEnabled = false;
+    bool max_login_attempts_enabled_ = false;
     bool isEnabled = false;
     bool isHostWhitelistEnabled = false;
     bool isPasswordEnabled = false;
     bool isStreamInitialized = false;
     bool isWhitelistEnabled = false;
+
+    std::unique_ptr<Dependencies> deps_;
 };
 
 void tr_rpcSetEnabled(tr_rpc_server* server, bool isEnabled);
@@ -97,13 +158,5 @@ std::string const& tr_rpcGetUsername(tr_rpc_server const* server);
 void tr_rpcSetPasswordEnabled(tr_rpc_server* server, bool isEnabled);
 
 bool tr_rpcIsPasswordEnabled(tr_rpc_server const* session);
-
-bool tr_rpcGetAntiBruteForceEnabled(tr_rpc_server const* server);
-
-void tr_rpcSetAntiBruteForceEnabled(tr_rpc_server* server, bool is_enabled);
-
-int tr_rpcGetAntiBruteForceThreshold(tr_rpc_server const* server);
-
-void tr_rpcSetAntiBruteForceThreshold(tr_rpc_server* server, int badRequests);
 
 char const* tr_rpcGetBindAddress(tr_rpc_server const* server);

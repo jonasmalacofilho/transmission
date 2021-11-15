@@ -2660,12 +2660,11 @@ void tr_rpc_parse_list_str(tr_variant* setme, std::string_view str)
 
 void tr_rpc_request_exec_uri(
     tr_session* session,
-    void const* request_uri,
-    size_t request_uri_len,
+    std::string_view request_uri,
     tr_rpc_response_func callback,
     void* callback_user_data)
 {
-    char* const request = tr_strndup(request_uri, request_uri_len);
+    char* const request = tr_strvDup(request_uri);
 
     auto top = tr_variant{};
     tr_variantInitDict(&top, 3);
