@@ -10,6 +10,7 @@
 #include <cerrno>
 #include <cstdlib> /* qsort */
 #include <cstring> /* strcmp, strlen */
+#include <mutex>
 
 #include <event2/util.h> /* evutil_ascii_strcasecmp() */
 
@@ -46,20 +47,19 @@ static struct FileList* getFiles(char const* dir, char const* base, struct FileL
         return nullptr;
     }
 
-    char* buf = tr_buildPath(dir, base, nullptr);
-    (void)tr_sys_path_native_separators(buf);
+    auto buf = tr_strvPath(dir, base);
+    tr_sys_path_native_separators(std::data(buf));
 
     tr_sys_path_info info;
     tr_error* error = nullptr;
-    if (!tr_sys_path_get_info(buf, 0, &info, &error))
+    if (!tr_sys_path_get_info(buf.c_str(), 0, &info, &error))
     {
-        tr_logAddError(_("Torrent Creator is skipping file \"%s\": %s"), buf, error->message);
-        tr_free(buf);
+        tr_logAddError(_("Torrent Creator is skipping file \"%s\": %s"), buf.c_str(), error->message);
         tr_error_free(error);
         return list;
     }
 
-    tr_sys_dir_t odir = info.type == TR_SYS_PATH_IS_DIRECTORY ? tr_sys_dir_open(buf, nullptr) : TR_BAD_SYS_DIR;
+    tr_sys_dir_t odir = info.type == TR_SYS_PATH_IS_DIRECTORY ? tr_sys_dir_open(buf.c_str(), nullptr) : TR_BAD_SYS_DIR;
 
     if (odir != TR_BAD_SYS_DIR)
     {
@@ -68,7 +68,7 @@ static struct FileList* getFiles(char const* dir, char const* base, struct FileL
         {
             if (name[0] != '.') /* skip dotfiles */
             {
-                list = getFiles(buf, name, list);
+                list = getFiles(buf.c_str(), name, list);
             }
         }
 
@@ -78,12 +78,11 @@ static struct FileList* getFiles(char const* dir, char const* base, struct FileL
     {
         struct FileList* node = tr_new(struct FileList, 1);
         node->size = info.size;
-        node->filename = tr_strdup(buf);
+        node->filename = tr_strvDup(buf);
         node->next = list;
         list = node;
     }
 
-    tr_free(buf);
     return list;
 }
 
@@ -479,9 +478,9 @@ static void tr_realMakeMetaInfo(tr_metainfo_builder* builder)
             tr_variantDictAddStr(&top, TR_KEY_comment, builder->comment);
         }
 
-        tr_variantDictAddStr(&top, TR_KEY_created_by, TR_NAME "/" LONG_VERSION_STRING);
+        tr_variantDictAddStrView(&top, TR_KEY_created_by, TR_NAME "/" LONG_VERSION_STRING);
         tr_variantDictAddInt(&top, TR_KEY_creation_date, time(nullptr));
-        tr_variantDictAddStr(&top, TR_KEY_encoding, "UTF-8");
+        tr_variantDictAddStrView(&top, TR_KEY_encoding, "UTF-8");
         makeInfoDict(tr_variantDictAddDict(&top, TR_KEY_info, 666), builder);
     }
 
@@ -515,17 +514,7 @@ static tr_metainfo_builder* queue = nullptr;
 
 static tr_thread* workerThread = nullptr;
 
-static tr_lock* getQueueLock(void)
-{
-    static tr_lock* lock = nullptr;
-
-    if (lock == nullptr)
-    {
-        lock = tr_lockNew();
-    }
-
-    return lock;
-}
+static std::recursive_mutex queue_mutex_;
 
 static void makeMetaWorkerFunc(void* /*user_data*/)
 {
@@ -534,8 +523,7 @@ static void makeMetaWorkerFunc(void* /*user_data*/)
         tr_metainfo_builder* builder = nullptr;
 
         /* find the next builder to process */
-        tr_lock* lock = getQueueLock();
-        tr_lockLock(lock);
+        queue_mutex_.lock();
 
         if (queue != nullptr)
         {
@@ -543,7 +531,7 @@ static void makeMetaWorkerFunc(void* /*user_data*/)
             queue = queue->nextBuilder;
         }
 
-        tr_lockUnlock(lock);
+        queue_mutex_.unlock();
 
         /* if no builders, this worker thread is done */
         if (builder == nullptr)
@@ -605,8 +593,8 @@ void tr_makeMetaInfo(
     }
 
     /* enqueue the builder */
-    tr_lock* lock = getQueueLock();
-    tr_lockLock(lock);
+    auto const lock = std::lock_guard(queue_mutex_);
+
     builder->nextBuilder = queue;
     queue = builder;
 
@@ -614,6 +602,4 @@ void tr_makeMetaInfo(
     {
         workerThread = tr_threadNew(makeMetaWorkerFunc, nullptr);
     }
-
-    tr_lockUnlock(lock);
 }

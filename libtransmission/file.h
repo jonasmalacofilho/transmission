@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <string_view>
 #include <inttypes.h>
 #include <time.h>
 
@@ -181,7 +182,7 @@ bool tr_sys_path_exists(char const* path, struct tr_error** error);
  *
  * @return `True` if path is relative, `false` otherwise
  */
-bool tr_sys_path_is_relative(char const* path);
+bool tr_sys_path_is_relative(std::string_view path);
 
 /**
  * @brief Test to see if the two filenames point to the same file.
@@ -224,7 +225,7 @@ char* tr_sys_path_resolve(char const* path, struct tr_error** error);
  *         it when no longer needed), `nullptr` otherwise (with `error` set
  *         accordingly).
  */
-char* tr_sys_path_basename(char const* path, struct tr_error** error);
+char* tr_sys_path_basename(std::string_view path, struct tr_error** error);
 
 /**
  * @brief Portability wrapper for `dirname()`.
@@ -238,7 +239,7 @@ char* tr_sys_path_basename(char const* path, struct tr_error** error);
  *         when no longer needed), `nullptr` otherwise (with `error` set
  *         accordingly).
  */
-char* tr_sys_path_dirname(char const* path, struct tr_error** error);
+char* tr_sys_path_dirname(std::string_view path, struct tr_error** error);
 
 /**
  * @brief Portability wrapper for `rename()`.

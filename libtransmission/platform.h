@@ -12,8 +12,7 @@
 #error only libtransmission should #include this header.
 #endif
 
-#define TR_PATH_DELIMITER '/'
-#define TR_PATH_DELIMITER_STR "/"
+#include <string>
 
 /**
  * @addtogroup tr_session Session
@@ -38,7 +37,7 @@ char const* tr_getTorrentDir(tr_session const*);
 char const* tr_getWebClientDir(tr_session const*);
 
 /** @brief return the directory where session id lock files are stored */
-char* tr_getSessionIdDir(void);
+std::string tr_getSessionIdDir();
 
 /** @} */
 
@@ -55,26 +54,5 @@ tr_thread* tr_threadNew(void (*func)(void*), void* arg);
 /** @brief Return nonzero if this function is being called from `thread'
     @param thread the thread being tested */
 bool tr_amInThread(tr_thread const* thread);
-
-/***
-****
-***/
-
-struct tr_lock;
-
-/** @brief Create a new thread mutex object */
-tr_lock* tr_lockNew(void);
-
-/** @brief Destroy a thread mutex object */
-void tr_lockFree(tr_lock*);
-
-/** @brief Attempt to lock a thread mutex object */
-void tr_lockLock(tr_lock*);
-
-/** @brief Unlock a thread mutex object */
-void tr_lockUnlock(tr_lock*);
-
-/** @brief return nonzero if the specified lock is locked */
-bool tr_lockHave(tr_lock const*);
 
 /* @} */

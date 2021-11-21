@@ -232,12 +232,12 @@ static tr_watchdir_status onFileAdded(tr_watchdir_t dir, char const* name, void*
         return TR_WATCHDIR_IGNORE;
     }
 
-    char* filename = tr_buildPath(tr_watchdir_get_path(dir), name, nullptr);
+    auto filename = tr_strvPath(tr_watchdir_get_path(dir), name);
     tr_ctor* ctor = tr_ctorNew(session);
 
     int err = 0;
     tr_error* error = nullptr;
-    tr_ctorSetMetainfoFromFile(ctor, filename, &error);
+    tr_ctorSetMetainfoFromFile(ctor, filename.c_str(), &error);
     if (error != nullptr)
     {
         tr_logAddError("Error setting metainfo: %s (%d)\n", error->message, error->code);
@@ -265,7 +265,7 @@ static tr_watchdir_status onFileAdded(tr_watchdir_t dir, char const* name, void*
 
                 tr_logAddInfo("Deleting input .torrent file \"%s\"", name);
 
-                if (!tr_sys_path_remove(filename, &error))
+                if (!tr_sys_path_remove(filename.c_str(), &error))
                 {
                     tr_logAddError("Error deleting .torrent file: %s", error->message);
                     tr_error_free(error);
@@ -273,15 +273,13 @@ static tr_watchdir_status onFileAdded(tr_watchdir_t dir, char const* name, void*
             }
             else
             {
-                char* new_filename = tr_strdup_printf("%s.added", filename);
-                tr_sys_path_rename(filename, new_filename, nullptr);
-                tr_free(new_filename);
+                auto const new_filename = filename + ".added";
+                tr_sys_path_rename(filename.c_str(), new_filename.c_str(), nullptr);
             }
         }
     }
 
     tr_ctorFree(ctor);
-    tr_free(filename);
 
     return err == TR_PARSE_ERR ? TR_WATCHDIR_RETRY : TR_WATCHDIR_ACCEPT;
 }
@@ -656,7 +654,6 @@ static void daemon_stop(void* /*arg*/)
 static int daemon_start(void* varg, [[maybe_unused]] bool foreground)
 {
     bool boolVal;
-    char const* pid_filename;
     bool pidfile_created = false;
     tr_session* session = nullptr;
     struct event* status_ev = nullptr;
@@ -691,13 +688,14 @@ static int daemon_start(void* varg, [[maybe_unused]] bool foreground)
     tr_logAddNamedInfo(nullptr, "Using settings from \"%s\"", configDir);
     tr_sessionSaveSettings(session, configDir, settings);
 
-    pid_filename = nullptr;
-    (void)tr_variantDictFindStr(settings, key_pidfile, &pid_filename, nullptr);
-    if (!tr_str_is_empty(pid_filename))
+    auto sv = std::string_view{};
+    (void)tr_variantDictFindStrView(settings, key_pidfile, &sv);
+    auto const sz_pid_filename = std::string{ sv };
+    if (!std::empty(sz_pid_filename))
     {
         tr_error* error = nullptr;
         tr_sys_file_t fp = tr_sys_file_open(
-            pid_filename,
+            sz_pid_filename.c_str(),
             TR_SYS_FILE_WRITE | TR_SYS_FILE_CREATE | TR_SYS_FILE_TRUNCATE,
             0666,
             &error);
@@ -706,12 +704,12 @@ static int daemon_start(void* varg, [[maybe_unused]] bool foreground)
         {
             tr_sys_file_write_fmt(fp, "%d", nullptr, (int)getpid());
             tr_sys_file_close(fp, nullptr);
-            tr_logAddInfo("Saved pidfile \"%s\"", pid_filename);
+            tr_logAddInfo("Saved pidfile \"%s\"", sz_pid_filename.c_str());
             pidfile_created = true;
         }
         else
         {
-            tr_logAddError("Unable to save pidfile \"%s\": %s", pid_filename, error->message);
+            tr_logAddError("Unable to save pidfile \"%s\": %s", sz_pid_filename.c_str(), error->message);
             tr_error_free(error);
         }
     }
@@ -732,19 +730,17 @@ static int daemon_start(void* varg, [[maybe_unused]] bool foreground)
     /* maybe add a watchdir */
     if (tr_variantDictFindBool(settings, TR_KEY_watch_dir_enabled, &boolVal) && boolVal)
     {
-        char const* dir;
-        bool force_generic;
+        auto force_generic = bool{ false };
+        (void)tr_variantDictFindBool(settings, key_watch_dir_force_generic, &force_generic);
 
-        if (!tr_variantDictFindBool(settings, key_watch_dir_force_generic, &force_generic))
+        auto dir = std::string_view{};
+        (void)tr_variantDictFindStrView(settings, TR_KEY_watch_dir, &dir);
+        if (!std::empty(dir))
         {
-            force_generic = false;
-        }
+            tr_logAddInfo("Watching \"%" TR_PRIsv "\" for new .torrent files", TR_PRIsv_ARG(dir));
 
-        if (tr_variantDictFindStr(settings, TR_KEY_watch_dir, &dir, nullptr) && !tr_str_is_empty(dir))
-        {
-            tr_logAddInfo("Watching \"%s\" for new .torrent files", dir);
-
-            if ((watchdir = tr_watchdir_new(dir, &onFileAdded, mySession, ev_base, force_generic)) == nullptr)
+            watchdir = tr_watchdir_new(dir, &onFileAdded, mySession, ev_base, force_generic);
+            if (watchdir == nullptr)
             {
                 goto CLEANUP;
             }
@@ -835,7 +831,7 @@ CLEANUP:
     /* cleanup */
     if (pidfile_created)
     {
-        tr_sys_path_remove(pid_filename, nullptr);
+        tr_sys_path_remove(sz_pid_filename.c_str(), nullptr);
     }
 
     sd_notify(0, "STATUS=\n");

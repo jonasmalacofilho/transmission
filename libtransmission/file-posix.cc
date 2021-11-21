@@ -321,11 +321,9 @@ bool tr_sys_path_get_info(char const* path, int flags, tr_sys_path_info* info, t
     return ret;
 }
 
-bool tr_sys_path_is_relative(char const* path)
+bool tr_sys_path_is_relative(std::string_view path)
 {
-    TR_ASSERT(path != nullptr);
-
-    return path[0] != '/';
+    return std::empty(path) || path.front() != '/';
 }
 
 bool tr_sys_path_is_same(char const* path1, char const* path2, tr_error** error)
@@ -380,11 +378,9 @@ char* tr_sys_path_resolve(char const* path, tr_error** error)
     return ret;
 }
 
-char* tr_sys_path_basename(char const* path, tr_error** error)
+char* tr_sys_path_basename(std::string_view path, tr_error** error)
 {
-    TR_ASSERT(path != nullptr);
-
-    char* const tmp = tr_strdup(path);
+    char* const tmp = tr_strvDup(path);
     char* ret = basename(tmp);
 
     if (ret != nullptr)
@@ -401,11 +397,9 @@ char* tr_sys_path_basename(char const* path, tr_error** error)
     return ret;
 }
 
-char* tr_sys_path_dirname(char const* path, tr_error** error)
+char* tr_sys_path_dirname(std::string_view path, tr_error** error)
 {
-    TR_ASSERT(path != nullptr);
-
-    char* const tmp = tr_strdup(path);
+    char* const tmp = tr_strvDup(path);
     char* ret = dirname(tmp);
 
     if (ret != nullptr)

@@ -132,8 +132,8 @@ static tr_pex* listToPex(tr_variant* peerList, size_t* setme_len)
             continue;
         }
 
-        char const* ip = nullptr;
-        if (!tr_variantDictFindStr(peer, TR_KEY_ip, &ip, nullptr))
+        auto ip = std::string_view{};
+        if (!tr_variantDictFindStrView(peer, TR_KEY_ip, &ip))
         {
             continue;
         }
@@ -199,8 +199,7 @@ static void on_announce_done(
     bool did_connect,
     bool did_timeout,
     long response_code,
-    void const* msg,
-    size_t msglen,
+    std::string_view msg,
     void* vdata)
 {
     auto* data = static_cast<struct announce_data*>(vdata);
@@ -219,7 +218,7 @@ static void on_announce_done(
     else
     {
         tr_variant benc;
-        bool const variant_loaded = tr_variantFromBenc(&benc, msg, msglen) == 0;
+        auto const variant_loaded = tr_variantFromBuf(&benc, TR_VARIANT_PARSE_BENC | TR_VARIANT_PARSE_INPLACE, msg);
 
         if (tr_env_key_exists("TR_CURL_VERBOSE"))
         {
@@ -368,8 +367,7 @@ static void on_scrape_done(
     bool did_connect,
     bool did_timeout,
     long response_code,
-    void const* msg,
-    size_t msglen,
+    std::string_view msg,
     void* vdata)
 {
     auto* data = static_cast<struct scrape_data*>(vdata);
@@ -392,7 +390,8 @@ static void on_scrape_done(
     else
     {
         auto top = tr_variant{};
-        auto const variant_loaded = tr_variantFromBenc(&top, msg, msglen) == 0;
+
+        auto const variant_loaded = tr_variantFromBuf(&top, TR_VARIANT_PARSE_BENC | TR_VARIANT_PARSE_INPLACE, msg);
 
         if (tr_env_key_exists("TR_CURL_VERBOSE"))
         {

@@ -279,8 +279,7 @@ static void on_content_changed(struct evbuffer* buf, struct evbuffer_cb_info con
     size_t const n_added = info->n_added;
     auto* task = static_cast<struct tr_webseed_task*>(vtask);
     auto* session = task->session;
-
-    tr_sessionLock(session);
+    auto const lock = session->unique_lock();
 
     if (!task->dead && n_added > 0)
     {
@@ -333,8 +332,6 @@ static void on_content_changed(struct evbuffer* buf, struct evbuffer_cb_info con
             task->blocks_done += completed;
         }
     }
-
-    tr_sessionUnlock(session);
 }
 
 static void task_request_next_chunk(struct tr_webseed_task* task);
@@ -365,29 +362,18 @@ static void on_idle(tr_webseed* w)
 
     if (tor != nullptr && tor->isRunning && !tr_torrentIsSeed(tor) && want > 0)
     {
-        tr_block_index_t* const blocks = tr_new(tr_block_index_t, want * 2);
-        auto got = int{};
-        tr_peerMgrGetNextRequests(tor, w, want, blocks, &got, true);
+        auto n_tasks = size_t{};
 
-        w->idle_connections -= std::min(w->idle_connections, got);
-
-        if (w->retry_tickcount >= FAILURE_RETRY_INTERVAL && got == want)
+        for (auto const range : tr_peerMgrGetNextRequests(tor, w, want))
         {
-            w->retry_tickcount = 0;
-        }
-
-        for (int i = 0; i < got; ++i)
-        {
-            tr_block_index_t const b = blocks[i * 2];
-            tr_block_index_t const be = blocks[i * 2 + 1];
-
-            auto* const task = tr_new0(struct tr_webseed_task, 1);
+            auto const [first, last] = range;
+            auto* const task = tr_new0(tr_webseed_task, 1);
             task->session = tor->session;
             task->webseed = w;
-            task->block = b;
-            task->piece_index = tor->pieceForBlock(b);
-            task->piece_offset = tor->block_size * b - tor->info.pieceSize * task->piece_index;
-            task->length = (be - b) * tor->block_size + tor->countBytesInBlock(be);
+            task->block = first;
+            task->piece_index = tor->pieceForBlock(first);
+            task->piece_offset = tor->block_size * first - tor->info.pieceSize * task->piece_index;
+            task->length = (last - first) * tor->block_size + tor->countBytesInBlock(last);
             task->blocks_done = 0;
             task->response_code = 0;
             task->block_size = tor->block_size;
@@ -395,9 +381,16 @@ static void on_idle(tr_webseed* w)
             evbuffer_add_cb(task->content, on_content_changed, task);
             w->tasks.insert(task);
             task_request_next_chunk(task);
+
+            --w->idle_connections;
+            ++n_tasks;
+            tr_peerMgrClientSentRequests(tor, w, range);
         }
 
-        tr_free(blocks);
+        if (w->retry_tickcount >= FAILURE_RETRY_INTERVAL && n_tasks > 0)
+        {
+            w->retry_tickcount = 0;
+        }
     }
 }
 
@@ -406,8 +399,7 @@ static void web_response_func(
     bool /*did_connect*/,
     bool /*did_timeout*/,
     long response_code,
-    void const* /*response*/,
-    size_t /*response_byte_count*/,
+    std::string_view /*response*/,
     void* vtask)
 {
     auto* t = static_cast<struct tr_webseed_task*>(vtask);

@@ -62,7 +62,6 @@
 #include "log.h"
 #include "mime-types.h"
 #include "net.h"
-#include "platform.h" /* tr_lockLock() */
 #include "platform-quota.h" /* tr_device_info_create(), tr_device_info_get_disk_space(), tr_device_info_free() */
 #include "tr-assert.h"
 #include "utils.h"
@@ -353,7 +352,7 @@ uint8_t* tr_loadFile(char const* path, size_t* size, tr_error** error)
     }
 
     /* file size should be able to fit into size_t */
-    if (sizeof(info.size) > sizeof(*size))
+    if constexpr (sizeof(info.size) > sizeof(*size))
     {
         TR_ASSERT(info.size <= SIZE_MAX);
     }
@@ -381,6 +380,49 @@ uint8_t* tr_loadFile(char const* path, size_t* size, tr_error** error)
     buf[info.size] = '\0';
     *size = info.size;
     return buf;
+}
+
+bool tr_loadFile(std::vector<char>& setme, char const* path, tr_error** error)
+{
+    char const* const err_fmt = _("Couldn't read \"%1$s\": %2$s");
+
+    /* try to stat the file */
+    auto info = tr_sys_path_info{};
+    tr_error* my_error = nullptr;
+    if (!tr_sys_path_get_info(path, 0, &info, &my_error))
+    {
+        tr_logAddDebug(err_fmt, path, my_error->message);
+        tr_error_propagate(error, &my_error);
+        return false;
+    }
+
+    if (info.type != TR_SYS_PATH_IS_FILE)
+    {
+        tr_logAddError(err_fmt, path, _("Not a regular file"));
+        tr_error_set_literal(error, TR_ERROR_EISDIR, _("Not a regular file"));
+        return false;
+    }
+
+    /* Load the torrent file into our buffer */
+    tr_sys_file_t const fd = tr_sys_file_open(path, TR_SYS_FILE_READ | TR_SYS_FILE_SEQUENTIAL, 0, &my_error);
+    if (fd == TR_BAD_SYS_FILE)
+    {
+        tr_logAddError(err_fmt, path, my_error->message);
+        tr_error_propagate(error, &my_error);
+        return false;
+    }
+
+    setme.resize(info.size);
+    if (!tr_sys_file_read(fd, std::data(setme), info.size, nullptr, &my_error))
+    {
+        tr_logAddError(err_fmt, path, my_error->message);
+        tr_sys_file_close(fd, nullptr);
+        tr_error_propagate(error, &my_error);
+        return false;
+    }
+
+    tr_sys_file_close(fd, nullptr);
+    return true;
 }
 
 char* tr_buildPath(char const* first_element, ...)
@@ -428,18 +470,15 @@ char* tr_buildPath(char const* first_element, ...)
     return buf;
 }
 
-tr_disk_space tr_getDirSpace(char const* dir)
+tr_disk_space tr_dirSpace(std::string_view dir)
 {
-    if (tr_str_is_empty(dir))
+    if (std::empty(dir))
     {
         errno = EINVAL;
         return { -1, -1 };
     }
 
-    auto* const info = tr_device_info_create(dir);
-    auto const disk_space = tr_device_info_get_disk_space(info);
-    tr_device_info_free(info);
-    return disk_space;
+    return tr_device_info_get_disk_space(tr_device_info_create(dir));
 }
 
 /****

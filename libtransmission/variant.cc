@@ -41,7 +41,7 @@
 #include "file.h"
 #include "log.h"
 #include "tr-assert.h"
-#include "utils.h" /* tr_new(), tr_free() */
+#include "utils.h"
 #include "variant.h"
 #include "variant-common.h"
 
@@ -160,6 +160,7 @@ static constexpr char const* tr_variant_string_get_string(struct tr_variant_stri
 
     case TR_STRING_TYPE_HEAP:
     case TR_STRING_TYPE_QUARK:
+    case TR_STRING_TYPE_VIEW:
         return str->str.str;
 
     default:
@@ -173,6 +174,15 @@ static void tr_variant_string_set_quark(struct tr_variant_string* str, tr_quark 
 
     str->type = TR_STRING_TYPE_QUARK;
     str->str.str = tr_quark_get_string(quark, &str->len);
+}
+
+static void tr_variant_string_set_string_view(struct tr_variant_string* str, std::string_view in)
+{
+    tr_variant_string_clear(str);
+
+    str->type = TR_STRING_TYPE_VIEW;
+    str->len = std::size(in);
+    str->str.str = std::data(in);
 }
 
 static void tr_variant_string_set_string(struct tr_variant_string* str, std::string_view in)
@@ -316,27 +326,6 @@ bool tr_variantGetStrView(tr_variant const* v, std::string_view* setme)
     return true;
 }
 
-bool tr_variantGetStr(tr_variant const* v, char const** setme, size_t* len)
-{
-    auto sv = std::string_view{};
-    if (!tr_variantGetStrView(v, &sv))
-    {
-        return false;
-    }
-
-    if (setme != nullptr)
-    {
-        *setme = std::data(sv);
-    }
-
-    if (len != nullptr)
-    {
-        *len = std::size(sv);
-    }
-
-    return true;
-}
-
 bool tr_variantGetRaw(tr_variant const* v, uint8_t const** setme_raw, size_t* setme_len)
 {
     bool const success = tr_variantIsString(v);
@@ -442,12 +431,6 @@ bool tr_variantDictFindStrView(tr_variant* dict, tr_quark const key, std::string
     return tr_variantGetStrView(child, setme);
 }
 
-bool tr_variantDictFindStr(tr_variant* dict, tr_quark const key, char const** setme, size_t* len)
-{
-    tr_variant const* const child = tr_variantDictFind(dict, key);
-    return tr_variantGetStr(child, setme, len);
-}
-
 bool tr_variantDictFindList(tr_variant* dict, tr_quark const key, tr_variant** setme)
 {
     return tr_variantDictFindType(dict, key, TR_VARIANT_TYPE_LIST, setme);
@@ -484,6 +467,12 @@ void tr_variantInitStr(tr_variant* v, std::string_view str)
 {
     tr_variantInit(v, TR_VARIANT_TYPE_STR);
     tr_variant_string_set_string(&v->val.s, str);
+}
+
+void tr_variantInitStrView(tr_variant* v, std::string_view str)
+{
+    tr_variantInit(v, TR_VARIANT_TYPE_STR);
+    tr_variant_string_set_string_view(&v->val.s, str);
 }
 
 void tr_variantInitBool(tr_variant* v, bool value)
@@ -593,6 +582,13 @@ tr_variant* tr_variantListAddStr(tr_variant* list, std::string_view str)
     return child;
 }
 
+tr_variant* tr_variantListAddStrView(tr_variant* list, std::string_view str)
+{
+    tr_variant* child = tr_variantListAdd(list);
+    tr_variantInitStrView(child, str);
+    return child;
+}
+
 tr_variant* tr_variantListAddQuark(tr_variant* list, tr_quark const val)
 {
     tr_variant* child = tr_variantListAdd(list);
@@ -691,6 +687,13 @@ tr_variant* tr_variantDictAddStr(tr_variant* dict, tr_quark const key, std::stri
 {
     tr_variant* child = dictFindOrAdd(dict, key, TR_VARIANT_TYPE_STR);
     tr_variantInitStr(child, str);
+    return child;
+}
+
+tr_variant* tr_variantDictAddStrView(tr_variant* dict, tr_quark const key, std::string_view str)
+{
+    tr_variant* child = dictFindOrAdd(dict, key, TR_VARIANT_TYPE_STR);
+    tr_variantInitStrView(child, str);
     return child;
 }
 
@@ -1289,55 +1292,41 @@ int tr_variantToFile(tr_variant const* v, tr_variant_fmt fmt, char const* filena
 ****
 ***/
 
-bool tr_variantFromFile(tr_variant* setme, tr_variant_fmt fmt, char const* filename, tr_error** error)
+bool tr_variantFromBuf(tr_variant* setme, int opts, std::string_view buf, char const** setme_end, tr_error** error)
 {
-    bool ret = false;
+    // supported formats: benc, json
+    TR_ASSERT((opts & (TR_VARIANT_PARSE_BENC | TR_VARIANT_PARSE_JSON)) != 0);
 
-    auto buflen = size_t{};
-    uint8_t* const buf = tr_loadFile(filename, &buflen, error);
-    if (buf != nullptr)
-    {
-        if (tr_variantFromBuf(setme, fmt, buf, buflen, filename, nullptr) == 0)
-        {
-            ret = true;
-        }
-        else
-        {
-            tr_error_set_literal(error, 0, _("Unable to parse file content"));
-        }
-
-        tr_free(buf);
-    }
-
-    return ret;
-}
-
-int tr_variantFromBuf(
-    tr_variant* setme,
-    tr_variant_fmt fmt,
-    void const* buf,
-    size_t buflen,
-    char const* optional_source,
-    char const** setme_end)
-{
-    /* parse with LC_NUMERIC="C" to ensure a "." decimal separator */
-    struct locale_context locale_ctx;
+    // parse with LC_NUMERIC="C" to ensure a "." decimal separator
+    auto locale_ctx = locale_context{};
     use_numeric_locale(&locale_ctx, "C");
 
-    auto err = int{};
-    switch (fmt)
-    {
-    case TR_VARIANT_FMT_JSON:
-    case TR_VARIANT_FMT_JSON_LEAN:
-        err = tr_jsonParse(optional_source, buf, buflen, setme, setme_end);
-        break;
-
-    default /* TR_VARIANT_FMT_BENC */:
-        err = tr_variantParseBenc(buf, (char const*)buf + buflen, setme, setme_end);
-        break;
-    }
+    auto err = (opts & TR_VARIANT_PARSE_BENC) ? tr_variantParseBenc(*setme, opts, buf, setme_end) :
+                                                tr_variantParseJson(*setme, opts, buf, setme_end);
 
     /* restore the previous locale */
     restore_locale(&locale_ctx);
-    return err;
+
+    if (err)
+    {
+        tr_error_set_literal(error, EILSEQ, "error parsing encoded data");
+        return false;
+    }
+
+    return true;
+}
+
+bool tr_variantFromFile(tr_variant* setme, tr_variant_parse_opts opts, char const* filename, tr_error** error)
+{
+    // can't do inplace when this function is allocating & freeing the memory...
+    TR_ASSERT((opts & TR_VARIANT_PARSE_INPLACE) == 0);
+
+    auto buf = std::vector<char>{};
+    if (!tr_loadFile(buf, filename, error))
+    {
+        return false;
+    }
+
+    auto sv = std::string_view{ std::data(buf), std::size(buf) };
+    return tr_variantFromBuf(setme, opts, sv, nullptr, error);
 }

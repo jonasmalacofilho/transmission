@@ -11,7 +11,9 @@
 #include <cstdarg>
 #include <cstdlib>
 #include <cstring>
+#include <iostream>
 #include <memory> // std::unique_ptr
+#include <optional>
 
 #include <event2/buffer.h>
 #include <event2/bufferevent.h>
@@ -581,7 +583,7 @@ public:
     bool clientSentLtepHandshake = false;
     bool peerSentLtepHandshake = false;
 
-    int desiredRequestCount = 0;
+    size_t desired_request_count = 0;
 
     int prefetchCount = 0;
 
@@ -630,9 +632,8 @@ public:
     struct tr_incoming incoming = {};
 
     /* if the peer supports the Extension Protocol in BEP 10 and
-       supplied a reqq argument, it's stored here. Otherwise, the
-       value is zero and should be ignored. */
-    int64_t reqq = 0;
+       supplied a reqq argument, it's stored here. */
+    std::optional<size_t> reqq;
 
     UniqueTimer pex_timer;
 
@@ -1119,12 +1120,12 @@ static void sendLtepHandshake(tr_peerMsgsImpl* msgs)
 
 static void parseLtepHandshake(tr_peerMsgsImpl* msgs, uint32_t len, struct evbuffer* inbuf)
 {
-    uint8_t* const tmp = tr_new(uint8_t, len);
+    auto* const tmp = tr_new(char, len);
     tr_peerIoReadBytes(msgs->io, inbuf, tmp, len);
     msgs->peerSentLtepHandshake = true;
 
     auto val = tr_variant{};
-    if (tr_variantFromBenc(&val, tmp, len) != 0 || !tr_variantIsDict(&val))
+    if (!tr_variantFromBuf(&val, TR_VARIANT_PARSE_BENC | TR_VARIANT_PARSE_INPLACE, { tmp, len }) || !tr_variantIsDict(&val))
     {
         dbgmsg(msgs, "GET  extended-handshake, couldn't get dictionary");
         tr_free(tmp);
@@ -1234,14 +1235,14 @@ static void parseUtMetadata(tr_peerMsgsImpl* msgs, uint32_t msglen, struct evbuf
     int64_t msg_type = -1;
     int64_t piece = -1;
     int64_t total_size = 0;
-    uint8_t* const tmp = tr_new(uint8_t, msglen);
+    char* const tmp = tr_new(char, msglen);
 
     tr_peerIoReadBytes(msgs->io, inbuf, tmp, msglen);
     char const* const msg_end = (char const*)tmp + msglen;
 
     auto dict = tr_variant{};
     char const* benc_end = nullptr;
-    if (tr_variantFromBencFull(&dict, tmp, msglen, nullptr, &benc_end) == 0)
+    if (tr_variantFromBuf(&dict, TR_VARIANT_PARSE_BENC | TR_VARIANT_PARSE_INPLACE, { tmp, msglen }, &benc_end))
     {
         (void)tr_variantDictFindInt(&dict, TR_KEY_msg_type, &msg_type);
         (void)tr_variantDictFindInt(&dict, TR_KEY_piece, &piece);
@@ -1306,56 +1307,54 @@ static void parseUtPex(tr_peerMsgsImpl* msgs, uint32_t msglen, struct evbuffer* 
         return;
     }
 
-    uint8_t* tmp = tr_new(uint8_t, msglen);
+    auto* tmp = tr_new(char, msglen);
     tr_peerIoReadBytes(msgs->io, inbuf, tmp, msglen);
 
     tr_variant val;
-    bool const loaded = tr_variantFromBenc(&val, tmp, msglen) == 0;
+    bool const loaded = tr_variantFromBuf(&val, TR_VARIANT_PARSE_BENC | TR_VARIANT_PARSE_INPLACE, { tmp, msglen });
+
+    if (loaded)
+    {
+        uint8_t const* added = nullptr;
+        auto added_len = size_t{};
+        if (tr_variantDictFindRaw(&val, TR_KEY_added, &added, &added_len))
+        {
+            uint8_t const* added_f = nullptr;
+            auto added_f_len = size_t{};
+            if (!tr_variantDictFindRaw(&val, TR_KEY_added_f, &added_f, &added_f_len))
+            {
+                added_f_len = 0;
+                added_f = nullptr;
+            }
+
+            auto n = size_t{};
+            tr_pex* const pex = tr_peerMgrCompactToPex(added, added_len, added_f, added_f_len, &n);
+            n = std::min(n, size_t{ MAX_PEX_PEER_COUNT });
+            tr_peerMgrAddPex(tor, TR_PEER_FROM_PEX, pex, n);
+            tr_free(pex);
+        }
+
+        if (tr_variantDictFindRaw(&val, TR_KEY_added6, &added, &added_len))
+        {
+            uint8_t const* added_f = nullptr;
+            auto added_f_len = size_t{};
+            if (!tr_variantDictFindRaw(&val, TR_KEY_added6_f, &added_f, &added_f_len))
+            {
+                added_f_len = 0;
+                added_f = nullptr;
+            }
+
+            auto n = size_t{};
+            tr_pex* const pex = tr_peerMgrCompact6ToPex(added, added_len, added_f, added_f_len, &n);
+            n = std::min(n, size_t{ MAX_PEX_PEER_COUNT });
+            tr_peerMgrAddPex(tor, TR_PEER_FROM_PEX, pex, n);
+            tr_free(pex);
+        }
+
+        tr_variantFree(&val);
+    }
 
     tr_free(tmp);
-
-    if (!loaded)
-    {
-        return;
-    }
-
-    uint8_t const* added = nullptr;
-    auto added_len = size_t{};
-    if (tr_variantDictFindRaw(&val, TR_KEY_added, &added, &added_len))
-    {
-        uint8_t const* added_f = nullptr;
-        auto added_f_len = size_t{};
-        if (!tr_variantDictFindRaw(&val, TR_KEY_added_f, &added_f, &added_f_len))
-        {
-            added_f_len = 0;
-            added_f = nullptr;
-        }
-
-        auto n = size_t{};
-        tr_pex* const pex = tr_peerMgrCompactToPex(added, added_len, added_f, added_f_len, &n);
-        n = std::min(n, size_t{ MAX_PEX_PEER_COUNT });
-        tr_peerMgrAddPex(tor, TR_PEER_FROM_PEX, pex, n);
-        tr_free(pex);
-    }
-
-    if (tr_variantDictFindRaw(&val, TR_KEY_added6, &added, &added_len))
-    {
-        uint8_t const* added_f = nullptr;
-        auto added_f_len = size_t{};
-        if (!tr_variantDictFindRaw(&val, TR_KEY_added6_f, &added_f, &added_f_len))
-        {
-            added_f_len = 0;
-            added_f = nullptr;
-        }
-
-        auto n = size_t{};
-        tr_pex* const pex = tr_peerMgrCompact6ToPex(added, added_len, added_f, added_f_len, &n);
-        n = std::min(n, size_t{ MAX_PEX_PEER_COUNT });
-        tr_peerMgrAddPex(tor, TR_PEER_FROM_PEX, pex, n);
-        tr_free(pex);
-    }
-
-    tr_variantFree(&val);
 }
 
 static void sendPex(tr_peerMsgsImpl* msgs);
@@ -2003,16 +2002,13 @@ static void updateDesiredRequestCount(tr_peerMsgsImpl* msgs)
     /* there are lots of reasons we might not want to request any blocks... */
     if (tr_torrentIsSeed(torrent) || !tr_torrentHasMetadata(torrent) || msgs->client_is_choked_ || !msgs->client_is_interested_)
     {
-        msgs->desiredRequestCount = 0;
+        msgs->desired_request_count = 0;
     }
     else
     {
-        int const floor = 4;
-        int const seconds = RequestBufSecs;
-        uint64_t const now = tr_time_msec();
-
         /* Get the rate limit we should use.
-         * FIXME: this needs to consider all the other peers as well... */
+         * TODO: this needs to consider all the other peers as well... */
+        uint64_t const now = tr_time_msec();
         auto rate_Bps = tr_peerGetPieceSpeed_Bps(msgs, now, TR_PEER_TO_CLIENT);
         if (tr_torrentUsesSpeedLimit(torrent, TR_PEER_TO_CLIENT))
         {
@@ -2029,14 +2025,11 @@ static void updateDesiredRequestCount(tr_peerMsgsImpl* msgs)
 
         /* use this desired rate to figure out how
          * many requests we should send to this peer */
-        int const estimatedBlocksInPeriod = (rate_Bps * seconds) / torrent->block_size;
-        msgs->desiredRequestCount = std::max(floor, estimatedBlocksInPeriod);
-
-        /* honor the peer's maximum request count, if specified */
-        if ((msgs->reqq > 0) && (msgs->desiredRequestCount > msgs->reqq))
-        {
-            msgs->desiredRequestCount = msgs->reqq;
-        }
+        size_t constexpr Floor = 32;
+        size_t constexpr Seconds = RequestBufSecs;
+        size_t const estimated_blocks_in_period = (rate_Bps * Seconds) / torrent->blockSize;
+        size_t const ceil = msgs->reqq ? *msgs->reqq : 250;
+        msgs->desired_request_count = std::clamp(estimated_blocks_in_period, Floor, ceil);
     }
 }
 
@@ -2072,24 +2065,36 @@ static void updateMetadataRequests(tr_peerMsgsImpl* msgs, time_t now)
 
 static void updateBlockRequests(tr_peerMsgsImpl* msgs)
 {
-    if (tr_torrentIsPieceTransferAllowed(msgs->torrent, TR_PEER_TO_CLIENT) && msgs->desiredRequestCount > 0 &&
-        msgs->pendingReqsToPeer <= msgs->desiredRequestCount * 0.66)
+    if (!tr_torrentIsPieceTransferAllowed(msgs->torrent, TR_PEER_TO_CLIENT))
     {
-        TR_ASSERT(msgs->is_client_interested());
-        TR_ASSERT(!msgs->is_client_choked());
+        return;
+    }
 
-        int const numwant = msgs->desiredRequestCount - msgs->pendingReqsToPeer;
+    auto const n_active = tr_peerMgrCountActiveRequestsToPeer(msgs->torrent, msgs);
+    if (n_active >= msgs->desired_request_count)
+    {
+        return;
+    }
 
-        auto* const blocks = tr_new(tr_block_index_t, numwant);
-        auto n = int{};
-        tr_peerMgrGetNextRequests(msgs->torrent, msgs, numwant, blocks, &n, false);
+    auto const n_wanted = msgs->desired_request_count - n_active;
+    if (n_wanted == 0)
+    {
+        return;
+    }
 
-        for (int i = 0; i < n; ++i)
+    TR_ASSERT(msgs->is_client_interested());
+    TR_ASSERT(!msgs->is_client_choked());
+
+    // std::cout << __FILE__ << ':' << __LINE__ << " wants " << n_wanted << " blocks to request" << std::endl;
+    for (auto const range : tr_peerMgrGetNextRequests(msgs->torrent, msgs, n_wanted))
+    {
+        for (tr_block_index_t block = range.first; block <= range.last; ++block)
         {
-            protocolSendRequest(msgs, blockToReq(msgs->torrent, blocks[i]));
+            protocolSendRequest(msgs, blockToReq(msgs->torrent, block));
         }
 
-        tr_free(blocks);
+        // std::cout << __FILE__ << ':' << __LINE__ << " peer " << (void*)msgs << " requested " << range.last + 1 - range.first << " blocks" << std::endl;
+        tr_peerMgrClientSentRequests(msgs->torrent, msgs, range);
     }
 }
 

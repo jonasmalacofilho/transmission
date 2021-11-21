@@ -62,6 +62,8 @@
 #include "utils.h"
 #include "variant.h"
 
+using namespace std::literals;
+
 static struct event* dht_timer = nullptr;
 static unsigned char myid[20];
 static tr_session* session_ = nullptr;
@@ -215,14 +217,9 @@ static void dht_bootstrap(void* closure)
 
     if (!bootstrap_done(cl->session, 0))
     {
-        tr_sys_file_t f = TR_BAD_SYS_FILE;
+        auto const bootstrap_file = tr_strvPath(cl->session->configDir, "dht.bootstrap");
 
-        char* const bootstrap_file = tr_buildPath(cl->session->configDir, "dht.bootstrap", nullptr);
-
-        if (bootstrap_file != nullptr)
-        {
-            f = tr_sys_file_open(bootstrap_file, TR_SYS_FILE_READ, 0, nullptr);
-        }
+        tr_sys_file_t const f = tr_sys_file_open(bootstrap_file.c_str(), TR_SYS_FILE_READ, 0, nullptr);
 
         if (f != TR_BAD_SYS_FILE)
         {
@@ -262,8 +259,6 @@ static void dht_bootstrap(void* closure)
 
             tr_sys_file_close(f, nullptr);
         }
-
-        tr_free(bootstrap_file);
     }
 
     if (!bootstrap_done(cl->session, 0))
@@ -318,17 +313,16 @@ int tr_dhtInit(tr_session* ss)
         dht_debug = stderr;
     }
 
-    char* const dat_file = tr_buildPath(ss->configDir, "dht.dat", nullptr);
+    auto const dat_file = tr_strvPath(ss->configDir, "dht.dat"sv);
     auto benc = tr_variant{};
-    int rc = tr_variantFromFile(&benc, TR_VARIANT_FMT_BENC, dat_file, nullptr) ? 0 : -1;
-    tr_free(dat_file);
+    auto const ok = tr_variantFromFile(&benc, TR_VARIANT_PARSE_JSON, dat_file.c_str());
 
     bool have_id = false;
     uint8_t* nodes = nullptr;
     uint8_t* nodes6 = nullptr;
     size_t len = 0;
     size_t len6 = 0;
-    if (rc == 0)
+    if (ok)
     {
         uint8_t const* raw = nullptr;
         have_id = tr_variantDictFindRaw(&benc, TR_KEY_id, &raw, &len);
@@ -371,8 +365,7 @@ int tr_dhtInit(tr_session* ss)
         tr_rand_buffer(myid, 20);
     }
 
-    rc = dht_init(ss->udp_socket, ss->udp6_socket, myid, nullptr);
-
+    int rc = dht_init(ss->udp_socket, ss->udp6_socket, myid, nullptr);
     if (rc < 0)
     {
         tr_free(nodes6);
@@ -472,10 +465,9 @@ void tr_dhtUninit(tr_session* ss)
             tr_variantDictAddRaw(&benc, TR_KEY_nodes6, compact6, out6 - compact6);
         }
 
-        char* const dat_file = tr_buildPath(ss->configDir, "dht.dat", nullptr);
-        tr_variantToFile(&benc, TR_VARIANT_FMT_BENC, dat_file);
+        auto const dat_file = tr_strvPath(ss->configDir, "dht.dat");
+        tr_variantToFile(&benc, TR_VARIANT_FMT_BENC, dat_file.c_str());
         tr_variantFree(&benc);
-        tr_free(dat_file);
     }
 
     dht_uninit();
@@ -630,7 +622,7 @@ static void callback(void* /*ignore*/, int event, unsigned char const* info_hash
 {
     if (event == DHT_EVENT_VALUES || event == DHT_EVENT_VALUES6)
     {
-        tr_sessionLock(session_);
+        auto const lock = session_->unique_lock();
 
         tr_torrent* const tor = tr_torrentFindFromHash(session_, info_hash);
         if (tor != nullptr && tr_torrentAllowsDHT(tor))
@@ -644,8 +636,6 @@ static void callback(void* /*ignore*/, int event, unsigned char const* info_hash
             tr_free(pex);
             tr_logAddTorDbg(tor, "Learned %d %s peers from DHT", (int)n, event == DHT_EVENT_VALUES6 ? "IPv6" : "IPv4");
         }
-
-        tr_sessionUnlock(session_);
     }
     else if (event == DHT_EVENT_SEARCH_DONE || event == DHT_EVENT_SEARCH_DONE6)
     {

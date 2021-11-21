@@ -17,7 +17,9 @@
 #include <array>
 #include <cstring> // memcmp()
 #include <list>
+#include <mutex>
 #include <map>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <unordered_set>
@@ -25,8 +27,11 @@
 
 #include <event2/util.h> // evutil_ascii_strncasecmp()
 
+#include "transmission.h"
+
 #include "bandwidth.h"
 #include "net.h"
+#include "rpc-server.h"
 #include "tr-macros.h"
 #include "utils.h" // tr_speed_K
 
@@ -49,7 +54,6 @@ struct tr_announcer_udp;
 struct tr_bindsockets;
 struct tr_blocklistFile;
 struct tr_cache;
-struct tr_device_info;
 struct tr_fdInfo;
 
 struct tr_turtle_info
@@ -131,23 +135,151 @@ struct CaseInsensitiveStringCompare // case-insensitive string compare
 /** @brief handle to an active libtransmission session */
 struct tr_session
 {
+public:
+    auto unique_lock() const
+    {
+        return std::unique_lock(session_mutex_);
+    }
+
+    bool isClosing() const
+    {
+        return is_closing_;
+    }
+
+    // download dir
+
+    std::string const& downloadDir() const
+    {
+        return download_dir_;
+    }
+
+    void setDownloadDir(std::string_view dir)
+    {
+        download_dir_ = dir;
+    }
+
+    // incomplete dir
+
+    std::string const& incompleteDir() const
+    {
+        return incomplete_dir_;
+    }
+
+    void setIncompleteDir(std::string_view dir)
+    {
+        incomplete_dir_ = dir;
+    }
+
+    bool useIncompleteDir() const
+    {
+        return incomplete_dir_enabled_;
+    }
+
+    void useIncompleteDir(bool enabled)
+    {
+        incomplete_dir_enabled_ = enabled;
+    }
+
+    // scripts
+
+    void useScript(TrScript i, bool enabled)
+    {
+        scripts_enabled_[i] = enabled;
+    }
+
+    bool useScript(TrScript i) const
+    {
+        return scripts_enabled_[i];
+    }
+
+    void setScript(TrScript i, std::string_view path)
+    {
+        scripts_[i] = path;
+    }
+
+    std::string const& script(TrScript i) const
+    {
+        return scripts_[i];
+    }
+
+    // blocklist
+
+    bool useBlocklist() const
+    {
+        return blocklist_enabled_;
+    }
+
+    void useBlocklist(bool enabled);
+
+    std::string const& blocklistUrl() const
+    {
+        return blocklist_url_;
+    }
+
+    void setBlocklistUrl(std::string_view url)
+    {
+        blocklist_url_ = url;
+    }
+
+    // RPC
+
+    void setRpcWhitelist(std::string_view whitelist)
+    {
+        tr_rpcSetWhitelist(this->rpc_server_.get(), whitelist);
+    }
+
+    std::string const& rpcWhitelist() const
+    {
+        return tr_rpcGetWhitelist(this->rpc_server_.get());
+    }
+
+    void useRpcWhitelist(bool enabled)
+    {
+        tr_rpcSetWhitelistEnabled(this->rpc_server_.get(), enabled);
+    }
+
+    bool useRpcWhitelist() const
+    {
+        return tr_rpcGetWhitelistEnabled(this->rpc_server_.get());
+    }
+
+    // peer networking
+
+    std::string const& peerCongestionAlgorithm() const
+    {
+        return peer_congestion_algorithm_;
+    }
+
+    void setPeerCongestionAlgorithm(std::string_view algorithm)
+    {
+        peer_congestion_algorithm_ = algorithm;
+    }
+
+    int peerSocketTos() const
+    {
+        return peer_socket_tos_;
+    }
+
+    void setPeerSocketTos(int tos)
+    {
+        peer_socket_tos_ = tos;
+    }
+
+public:
     bool isPortRandom;
     bool isPexEnabled;
     bool isDHTEnabled;
     bool isUTPEnabled;
     bool isLPDEnabled;
-    bool isBlocklistEnabled;
     bool isPrefetchEnabled;
-    bool isClosing;
+    bool is_closing_ = false;
     bool isClosed;
-    bool isIncompleteFileNamingEnabled;
     bool isRatioLimited;
     bool isIdleLimited;
-    bool isIncompleteDirEnabled;
+    bool isIncompleteFileNamingEnabled;
     bool pauseAddedTorrent;
     bool deleteSourceTorrent;
     bool scrapePausedTorrents;
-    std::array<bool, TR_SCRIPT_N_TYPES> scripts_enabled;
 
     uint8_t peer_id_ttl_hours;
 
@@ -207,24 +339,14 @@ struct tr_session
     tr_port randomPortLow;
     tr_port randomPortHigh;
 
-    int peerSocketTOS;
-    char* peer_congestion_algorithm;
-
     std::unordered_set<tr_torrent*> torrents;
     std::map<int, tr_torrent*> torrentsById;
     std::map<uint8_t const*, tr_torrent*, CompareHash> torrentsByHash;
     std::map<std::string_view, tr_torrent*, CaseInsensitiveStringCompare> torrentsByHashString;
 
-    std::array<std::string, TR_SCRIPT_N_TYPES> scripts;
-
     char* configDir;
     char* resumeDir;
     char* torrentDir;
-    char* incompleteDir;
-
-    char* blocklist_url;
-
-    struct tr_device_info* downloadDir;
 
     std::list<tr_blocklistFile*> blocklists;
     struct tr_peerMgr* peerMgr;
@@ -232,12 +354,10 @@ struct tr_session
 
     struct tr_cache* cache;
 
-    struct tr_lock* lock;
-
     struct tr_web* web;
 
     struct tr_session_id* session_id;
-    struct tr_rpc_server* rpcServer;
+
     tr_rpc_func rpc_func;
     void* rpc_func_user_data;
 
@@ -260,6 +380,23 @@ struct tr_session
 
     struct tr_bindinfo* bind_ipv4;
     struct tr_bindinfo* bind_ipv6;
+
+    std::unique_ptr<tr_rpc_server> rpc_server_;
+
+private:
+    static std::recursive_mutex session_mutex_;
+
+    std::array<std::string, TR_SCRIPT_N_TYPES> scripts_;
+    std::string blocklist_url_;
+    std::string download_dir_;
+    std::string incomplete_dir_;
+    std::string peer_congestion_algorithm_;
+
+    int peer_socket_tos_ = 0;
+
+    std::array<bool, TR_SCRIPT_N_TYPES> scripts_enabled_;
+    bool blocklist_enabled_ = false;
+    bool incomplete_dir_enabled_ = false;
 };
 
 constexpr tr_port tr_sessionGetPublicPeerPort(tr_session const* session)
@@ -272,12 +409,6 @@ bool tr_sessionAllowsDHT(tr_session const* session);
 bool tr_sessionAllowsLPD(tr_session const* session);
 
 bool tr_sessionIsAddressBlocked(tr_session const* session, struct tr_address const* addr);
-
-void tr_sessionLock(tr_session*);
-
-void tr_sessionUnlock(tr_session*);
-
-bool tr_sessionIsLocked(tr_session const*);
 
 struct tr_address const* tr_sessionGetPublicAddress(tr_session const* session, int tr_af_type, bool* is_default_value);
 

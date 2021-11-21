@@ -33,6 +33,7 @@
 
 class tr_swarm;
 struct tr_magnet_info;
+struct tr_metainfo_parsed;
 struct tr_session;
 struct tr_torrent;
 struct tr_torrent_tiers;
@@ -91,7 +92,9 @@ void tr_torrentGetBlockLocation(
     uint32_t* offset,
     uint32_t* length);
 
-tr_block_range tr_torGetFileBlockRange(tr_torrent const* tor, tr_file_index_t const file);
+tr_block_range_t tr_torGetFileBlockRange(tr_torrent const* tor, tr_file_index_t const file);
+
+tr_block_range_t tr_torGetPieceBlockRange(tr_torrent const* tor, tr_piece_index_t const piece);
 
 void tr_torrentInitFilePriority(tr_torrent* tor, tr_file_index_t fileIndex, tr_priority_t priority);
 
@@ -128,11 +131,42 @@ struct tr_incomplete_metadata;
 /** @brief Torrent object */
 struct tr_torrent : public tr_block_info
 {
+public:
+    void setLocation(
+        std::string_view location,
+        bool move_from_current_location,
+        double volatile* setme_progress,
+        int volatile* setme_state);
+
+    void renamePath(
+        std::string_view oldpath,
+        std::string_view newname,
+        tr_torrent_rename_done_func callback,
+        void* callback_user_data);
+
+    tr_sha1_digest_t pieceHash(tr_piece_index_t i) const
+    {
+        TR_ASSERT(i < std::size(this->piece_checksums_));
+        return this->piece_checksums_[i];
+    }
+
+    // these functions should become private when possible,
+    // but more refactoring is needed before that can happen
+    // because much of tr_torrent's impl is in the non-member C bindings
+    //
+    // private:
+    void takeMetainfo(tr_metainfo_parsed&& parsed);
+
+public:
+    auto unique_lock() const
+    {
+        return session->unique_lock();
+    }
+
     tr_session* session;
     tr_info info;
 
     std::optional<double> verify_progress;
-    std::vector<tr_sha1_digest_t> piece_checksums;
 
     tr_stat_errtype error;
     char errorString[128];
@@ -220,7 +254,9 @@ struct tr_torrent : public tr_block_info
             // if a file has changed, mark its pieces as unchecked
             if (mtime == 0 || mtime != mtimes[i])
             {
-                checked_pieces_.unsetRange(info.files[i].firstPiece, info.files[i].lastPiece);
+                auto const begin = info.files[i].firstPiece;
+                auto const end = info.files[i].lastPiece + 1;
+                checked_pieces_.unsetRange(begin, end);
             }
         }
     }
@@ -271,7 +307,7 @@ struct tr_torrent : public tr_block_info
     char* incompleteDir;
 
     /* Length, in bytes, of the "info" dict in the .torrent file. */
-    size_t infoDictLength;
+    uint64_t infoDictLength;
 
     /* Offset, in bytes, of the beginning of the "info" dict in the .torrent file.
      *
@@ -376,22 +412,10 @@ struct tr_torrent : public tr_block_info
     bool finishedSeedingByIdle;
 
     tr_labels_t labels;
+
+private:
+    mutable std::vector<tr_sha1_digest_t> piece_checksums_;
 };
-
-static inline void tr_torrentLock(tr_torrent const* tor)
-{
-    tr_sessionLock(tor->session);
-}
-
-static inline bool tr_torrentIsLocked(tr_torrent const* tor)
-{
-    return tr_sessionIsLocked(tor->session);
-}
-
-static inline void tr_torrentUnlock(tr_torrent const* tor)
-{
-    tr_sessionUnlock(tor->session);
-}
 
 static inline bool tr_torrentExists(tr_session const* session, uint8_t const* torrentHash)
 {

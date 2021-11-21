@@ -200,7 +200,7 @@ static void canReadWrapper(tr_peerIo* io)
     /* try to consume the input buffer */
     if (io->canRead != nullptr)
     {
-        tr_sessionLock(session);
+        auto const lock = session->unique_lock();
 
         auto const now = tr_time_msec();
         auto done = bool{ false };
@@ -254,8 +254,6 @@ static void canReadWrapper(tr_peerIo* io)
 
             TR_ASSERT(tr_isPeerIo(io));
         }
-
-        tr_sessionUnlock(session);
     }
 
     tr_peerIoUnref(io);
@@ -427,11 +425,11 @@ FAIL:
 ***
 **/
 
-static void maybeSetCongestionAlgorithm(tr_socket_t socket, char const* algorithm)
+static void maybeSetCongestionAlgorithm(tr_socket_t socket, std::string const& algorithm)
 {
-    if (!tr_str_is_empty(algorithm))
+    if (!std::empty(algorithm))
     {
-        tr_netSetCongestionControl(socket, algorithm);
+        tr_netSetCongestionControl(socket, algorithm.c_str());
     }
 }
 
@@ -628,8 +626,8 @@ static tr_peerIo* tr_peerIoNew(
 
     if (socket.type == TR_PEER_SOCKET_TYPE_TCP)
     {
-        tr_netSetTOS(socket.handle.tcp, session->peerSocketTOS, addr->type);
-        maybeSetCongestionAlgorithm(socket.handle.tcp, session->peer_congestion_algorithm);
+        tr_netSetTOS(socket.handle.tcp, session->peerSocketTos(), addr->type);
+        maybeSetCongestionAlgorithm(socket.handle.tcp, session->peerCongestionAlgorithm());
     }
 
     auto* io = new tr_peerIo{ session, *addr, port, isSeed };
@@ -986,8 +984,8 @@ int tr_peerIoReconnect(tr_peerIo* io)
     io->event_write = event_new(session->event_base, io->socket.handle.tcp, EV_WRITE, event_write_cb, io);
 
     event_enable(io, pendingEvents);
-    tr_netSetTOS(io->socket.handle.tcp, session->peerSocketTOS, io->addr.type);
-    maybeSetCongestionAlgorithm(io->socket.handle.tcp, session->peer_congestion_algorithm);
+    tr_netSetTOS(io->socket.handle.tcp, session->peerSocketTos(), io->addr.type);
+    maybeSetCongestionAlgorithm(io->socket.handle.tcp, session->peerCongestionAlgorithm());
 
     return 0;
 }

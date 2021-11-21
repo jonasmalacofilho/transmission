@@ -22,6 +22,8 @@
 #include "error.h"
 #include "quark.h"
 
+struct tr_variant;
+
 struct tr_magnet_metainfo
 {
     bool parseMagnet(std::string_view magnet_link, tr_error** error = nullptr);

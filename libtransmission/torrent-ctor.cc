@@ -55,6 +55,8 @@ struct tr_ctor
     std::vector<tr_file_index_t> normal;
     std::vector<tr_file_index_t> high;
 
+    std::vector<char> contents;
+
     explicit tr_ctor(tr_session const* session_in)
         : session{ session_in }
     {
@@ -110,14 +112,7 @@ bool tr_ctorSetMetainfoFromMagnetLink(tr_ctor* ctor, char const* magnet_link, tr
 
 bool tr_ctorSetMetainfoFromFile(tr_ctor* ctor, char const* filename, tr_error** error)
 {
-    if (filename == nullptr)
-    {
-        tr_error_set_literal(error, TR_ERROR_EINVAL, "no file specified");
-        return false;
-    }
-
-    auto const filename_sv = std::string_view{ filename };
-    if (!tr_loadFile(ctor->contents, filename_sv, error))
+    if (!tr_loadFile(ctor->contents, filename, error))
     {
         return false;
     }
@@ -136,8 +131,6 @@ bool tr_ctorSetMetainfoFromFile(tr_ctor* ctor, char const* filename, tr_error** 
         ctor->tm->name = base;
         tr_free(base);
     }
-
-    return true;
 }
 
 /***

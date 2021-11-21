@@ -62,7 +62,7 @@ struct tr_block_info
         return ret;
     }
 
-    constexpr tr_block_range blockRangeForPiece(tr_piece_index_t piece) const
+    constexpr tr_block_range_t blockRangeForPiece(tr_piece_index_t piece) const
     {
         uint64_t offset = piece_size;
         offset *= piece;
