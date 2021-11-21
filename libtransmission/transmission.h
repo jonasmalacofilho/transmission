@@ -46,6 +46,7 @@ struct tr_error;
 struct tr_info;
 struct tr_session;
 struct tr_torrent;
+struct tr_torrent_metainfo;
 struct tr_variant;
 
 using tr_priority_t = int8_t;
@@ -241,16 +242,6 @@ void tr_sessionSetDownloadDir(tr_session* session, char const* downloadDir);
  * and can be overridden on a per-torrent basis by tr_ctorSetDownloadDir().
  */
 char const* tr_sessionGetDownloadDir(tr_session const* session);
-
-/**
- * @brief Set the torrent's bandwidth priority.
- */
-void tr_ctorSetBandwidthPriority(tr_ctor* ctor, tr_priority_t priority);
-
-/**
- * @brief Get the torrent's bandwidth priority.
- */
-tr_priority_t tr_ctorGetBandwidthPriority(tr_ctor const* ctor);
 
 /**
  * @brief set the per-session incomplete download folder.
@@ -816,10 +807,10 @@ char const* tr_blocklistGetURL(tr_session const*);
     to create a tr_torrent object.
 
     To remedy this, a Torrent Constructor (struct tr_ctor) has been introduced:
-    - Simplifies the API to two functions: tr_torrentParse() and tr_torrentNew()
+    - Simplifies the API to two functions: tr_torrentParse() and tr_sessionAddTorrent()
     - You can set the fields you want; the system sets defaults for the rest.
     - You can specify whether or not your fields should supercede resume's.
-    - We can add new features to tr_ctor without breaking tr_torrentNew()'s API.
+    - We can add new features to tr_ctor without breaking tr_sessionAddTorrent()'s API.
 
     All the tr_ctor{Get,Set}* () functions with a return value return
     an error number, or zero if no error occurred.
@@ -829,7 +820,7 @@ char const* tr_blocklistGetURL(tr_session const*);
 
     You can reuse a single tr_ctor to create a batch of torrents --
     just call one of the SetMetainfo() functions between each
-    tr_torrentNew() call.
+    tr_sessionAddTorrent() call.
 
     Every call to tr_ctorSetMetainfo* () frees the previous metainfo.
  */
@@ -863,6 +854,9 @@ bool tr_ctorSetMetainfoFromFile(tr_ctor* ctor, char const* filename, tr_error** 
 /** @brief Set the constructor's metainfo from a magnet link */
 bool tr_ctorSetMetainfoFromMagnetLink(tr_ctor* ctor, char const* magnet_link, tr_error** error);
 
+/** @brief Return true iff the data passed nto SetMetainfo() was parsed successfully */
+bool tr_ctorIsMetainfoValid(tr_ctor const* ctor);
+
 /** @brief Set how many peers this torrent can connect to. (Default: 50) */
 void tr_ctorSetPeerLimit(tr_ctor* ctor, tr_ctorMode mode, uint16_t limit);
 
@@ -891,6 +885,13 @@ void tr_ctorSetFilePriorities(tr_ctor* ctor, tr_file_index_t const* files, tr_fi
 /** @brief Set the download flag for files in a torrent */
 void tr_ctorSetFilesWanted(tr_ctor* ctor, tr_file_index_t const* fileIndices, tr_file_index_t fileCount, bool wanted);
 
+/** @brief Set the torrent's bandwidth priority. */
+void tr_ctorSetBandwidthPriority(tr_ctor* ctor, tr_priority_t priority);
+
+#if 0
+/** @brief Get the torrent's bandwidth priority.  */
+tr_priority_t tr_ctorGetBandwidthPriority(tr_ctor const* ctor);
+
 /** @brief Get this peer constructor's peer limit */
 bool tr_ctorGetPeerLimit(tr_ctor const* ctor, tr_ctorMode mode, uint16_t* setmeCount);
 
@@ -904,7 +905,7 @@ bool tr_ctorGetDownloadDir(tr_ctor const* ctor, tr_ctorMode mode, char const** s
 bool tr_ctorGetIncompleteDir(tr_ctor const* ctor, char const** setmeIncompleteDir);
 
 /** @brief Get the metainfo from this peer constructor */
-bool tr_ctorGetMetainfo(tr_ctor const* ctor, struct tr_variant const** setme);
+bool tr_ctorGetMetainfo(tr_ctor const* ctor, struct tr_variant const** setme, tr_error** error);
 
 /** @brief Get the "delete .torrent file" flag from this peer constructor */
 bool tr_ctorGetDeleteSource(tr_ctor const* ctor, bool* setmeDoDelete);
@@ -915,6 +916,7 @@ tr_session* tr_ctorGetSession(tr_ctor const* ctor);
 /** @brief Get the .torrent file that this ctor's metainfo came from,
            or nullptr if tr_ctorSetMetainfoFromFile() wasn't used */
 char const* tr_ctorGetSourceFile(tr_ctor const* ctor);
+#endif
 
 enum tr_parse_result
 {
@@ -936,11 +938,7 @@ enum tr_parse_result
  *
  * Notes:
  *
- * 1. tr_torrentParse() won't be able to check for duplicates -- and therefore
- *    won't return TR_PARSE_DUPLICATE -- unless ctor's "download-dir" and
- *    session variable is set.
- *
- * 2. setme_info->torrent's value can't be set unless ctor's session variable
+ * 1. setme_info->torrent's value can't be set unless ctor's session variable
  *    is set.
  */
 tr_parse_result tr_torrentParse(tr_ctor const* ctor, tr_info* setme_info_or_nullptr);
@@ -950,18 +948,13 @@ tr_parse_result tr_torrentParse(tr_ctor const* ctor, tr_info* setme_info_or_null
 void tr_metainfoFree(tr_info* inf);
 
 /**
- * Instantiate a single torrent.
+ * Try to add a new torrent to the session.
  *
- * Returns a pointer to the torrent on success, or nullptr on failure.
- *
- * @param ctor               the builder struct
- * @param setme_error        TR_PARSE_ERR if the parsing failed.
- *                           TR_PARSE_OK if parsing succeeded and it's not a duplicate.
- *                           TR_PARSE_DUPLICATE if parsing succeeded but it's a duplicate.
- * @param setme_duplicate_id when setmeError is TR_PARSE_DUPLICATE,
- *                           this field is set to the duplicate torrent's id.
+ * If the new torrent is unique, the new torrent is returned.
+ * If the new torrent would duplicate an existing one, the existing torrent is returned and `error->code` is set to EEXIST.
+ * If the ctor metainfo is invalid, `error` is set and nullptr is returned.
  */
-tr_torrent* tr_torrentNew(tr_ctor const* ctor, int* setme_error, int* setme_duplicate_id);
+tr_torrent* tr_sessionAddTorrent(tr_session* session, tr_ctor const* ctor, tr_error** error);
 
 /** @} */
 
@@ -1074,6 +1067,8 @@ int tr_torrentId(tr_torrent const* torrent);
 tr_torrent* tr_torrentFindFromId(tr_session* session, int id);
 
 tr_torrent* tr_torrentFindFromHash(tr_session* session, uint8_t const* hash);
+
+tr_torrent* tr_torrentFindFromMetainfo(tr_session* session, tr_torrent_metainfo const* metainfo);
 
 /** @brief Convenience function similar to tr_torrentFindFromHash() */
 tr_torrent* tr_torrentFindFromMagnetLink(tr_session* session, char const* link);

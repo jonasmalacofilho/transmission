@@ -22,6 +22,7 @@
 #include "resume.h"
 #include "session.h"
 #include "torrent.h"
+#include "torrent-ctor.h"
 #include "tr-assert.h"
 #include "utils.h"
 #include "variant.h"
@@ -33,12 +34,12 @@ namespace
 
 constexpr int MAX_REMEMBERED_PEERS = 200;
 
-} // unnamed namespace
-
-static std::string getResumeFilename(tr_torrent const* tor, enum tr_metainfo_basename_format format)
+std::string getResumeFilename(tr_torrent const* tor, tr_torrent_metainfo::FilenameFormat fmt)
 {
-    return tr_buildTorrentFilename(tr_getResumeDir(tor->session), tr_torrentInfo(tor), format, ".resume"sv);
+    return tor->metainfo.makeFilename(tr_getResumeDir(tor->session), fmt, ".resume"sv);
 }
+
+} // unnamed namespace
 
 /***
 ****
@@ -716,7 +717,7 @@ void tr_torrentSaveResume(tr_torrent* tor)
     saveName(&top, tor);
     saveLabels(&top, tor);
 
-    std::string const filename = getResumeFilename(tor, TR_METAINFO_BASENAME_HASH);
+    std::string const filename = getResumeFilename(tor, tr_torrent_metainfo::FilenameFormat::FullHash);
     int const err = tr_variantToFile(&top, TR_VARIANT_FMT_BENC, filename.c_str());
     if (err != 0)
     {
@@ -743,7 +744,7 @@ static uint64_t loadFromFile(tr_torrent* tor, uint64_t fieldsToLoad, bool* didRe
         *didRenameToHashOnlyName = false;
     }
 
-    std::string const filename = getResumeFilename(tor, TR_METAINFO_BASENAME_HASH);
+    std::string const filename = getResumeFilename(tor, tr_torrent_metainfo::FilenameFormat::FullHash);
     auto buf = std::vector<char>{};
     if (!tr_loadFile(buf, filename.c_str(), &error) ||
         !tr_variantFromBuf(
@@ -756,7 +757,7 @@ static uint64_t loadFromFile(tr_torrent* tor, uint64_t fieldsToLoad, bool* didRe
         tr_logAddTorDbg(tor, "Couldn't read \"%s\": %s", filename.c_str(), error->message);
         tr_error_clear(&error);
 
-        std::string const old_filename = getResumeFilename(tor, TR_METAINFO_BASENAME_NAME_AND_PARTIAL_HASH);
+        std::string const old_filename = getResumeFilename(tor, tr_torrent_metainfo::FilenameFormat::NameAndParitalHash);
 
         if (!tr_variantFromFile(&top, TR_VARIANT_PARSE_BENC, old_filename.c_str(), &error))
         {
@@ -943,27 +944,32 @@ static uint64_t setFromCtor(tr_torrent* tor, uint64_t fields, tr_ctor const* cto
 
     if ((fields & TR_FR_RUN) != 0)
     {
-        auto isPaused = bool{};
-        if (tr_ctorGetPaused(ctor, mode, &isPaused))
+        auto paused = ctor->paused(mode);
+        if (paused)
         {
-            tor->isRunning = !isPaused;
+            tor->isRunning = !*paused;
             ret |= TR_FR_RUN;
         }
     }
 
-    if (((fields & TR_FR_MAX_PEERS) != 0) && tr_ctorGetPeerLimit(ctor, mode, &tor->maxConnectedPeers))
+    if ((fields & TR_FR_MAX_PEERS) != 0)
     {
-        ret |= TR_FR_MAX_PEERS;
+        auto peer_limit = ctor->peerLimit(mode);
+        if (peer_limit)
+        {
+            tor->maxConnectedPeers = *peer_limit;
+            ret |= TR_FR_MAX_PEERS;
+        }
     }
 
     if ((fields & TR_FR_DOWNLOAD_DIR) != 0)
     {
-        char const* path = nullptr;
-        if (tr_ctorGetDownloadDir(ctor, mode, &path) && !tr_str_is_empty(path))
+        auto download_dir = ctor->downloadDir(mode);
+        if (download_dir)
         {
-            ret |= TR_FR_DOWNLOAD_DIR;
             tr_free(tor->downloadDir);
-            tor->downloadDir = tr_strdup(path);
+            tor->downloadDir = tr_strvDup(*download_dir);
+            ret |= TR_FR_DOWNLOAD_DIR;
         }
     }
 

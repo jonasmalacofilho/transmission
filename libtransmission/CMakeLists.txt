@@ -31,7 +31,6 @@ set(PROJECT_FILES
   handshake.cc
   inout.cc
   log.cc
-  magnet-metainfo.cc
   makemeta.cc
   metainfo.cc
   natpmp.cc
@@ -56,7 +55,6 @@ set(PROJECT_FILES
   subprocess-win32.cc
   torrent-ctor.cc
   torrent-magnet.cc
-  torrent-metainfo.cc
   torrent.cc
   tr-assert.cc
   tr-dht.cc
@@ -132,7 +130,6 @@ set(${PROJECT_NAME}_PUBLIC_HEADERS
     quark.h
     rpcimpl.h
     session-id.h
-    torrent-metainfo-public.h
     tr-assert.h
     tr-getopt.h
     tr-macros.h
@@ -161,7 +158,6 @@ set(${PROJECT_NAME}_PRIVATE_HEADERS
     handshake.h
     history.h
     inout.h
-    magnet-metainfo.h
     metainfo.h
     mime-types.h
     natpmp_local.h
@@ -182,8 +178,8 @@ set(${PROJECT_NAME}_PRIVATE_HEADERS
     session.h
     stats.h
     subprocess.h
+    torrent-ctor.h
     torrent-magnet.h
-    torrent-metainfo.h
     torrent.h
     tr-dht.h
     tr-lpd.h

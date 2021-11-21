@@ -156,7 +156,7 @@ protected:
 
         // now let's check our work: parse the  .torrent file
         auto* ctor = tr_ctorNew(nullptr);
-        tr_ctorSetMetainfoFromFile(ctor, torrent_file.c_str());
+        tr_ctorSetMetainfoFromFile(ctor, torrent_file.c_str(), nullptr);
         auto inf = tr_info{};
         auto parse_result = tr_torrentParse(ctor, &inf);
         EXPECT_EQ(TR_PARSE_OK, parse_result);

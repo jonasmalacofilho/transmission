@@ -219,11 +219,11 @@ TEST(TorrentMetainfoTest, MultiFile)
 TEST(TorrentMetainfoTest, BencOffsets)
 {
     auto const filename = std::string{ AssetsPath } + std::string{ "/multifile.torrent" };
-    auto benc = std::vector<std::byte>{};
+    auto benc = std::vector<char>{};
     auto metainfo = tr_torrent_metainfo{};
 
-    EXPECT_TRUE(tr_loadFile(benc, filename));
-    EXPECT_TRUE(metainfo.parseBenc(std::data(benc), std::size(benc)));
+    EXPECT_TRUE(tr_loadFile(benc, filename.c_str()));
+    EXPECT_TRUE(metainfo.parseBenc(std::string_view{ std::data(benc), std::size(benc) }));
     EXPECT_EQ(152, metainfo.info_dict_size);
     EXPECT_EQ(176, metainfo.info_dict_offset);
     EXPECT_EQ(292, metainfo.pieces_offset);

@@ -329,7 +329,65 @@ bool tr_loadFile(std::vector<std::byte>& setme, std::string_view path, tr_error*
     return true;
 }
 
-// TODO: return a std::vector<>
+static bool writeContentsToFd(std::string_view sv, tr_sys_file_t fd, tr_error** error)
+{
+    bool ok = true;
+
+    while (!std::empty(sv))
+    {
+        uint64_t n = 0;
+
+        if (!tr_sys_file_write(fd, std::data(sv), std::size(sv), &n, error))
+        {
+            ok = false;
+            break;
+        }
+
+        sv.remove_prefix(n);
+    }
+
+    return ok;
+}
+
+bool tr_saveFile(std::string_view contents, char const* filename, tr_error** error)
+{
+    // follow symlinks to find the "real" file, to make sure the temporary
+    // we build with tr_sys_file_open_temp() is in the right partition
+    char* real_filename = tr_sys_path_resolve(filename, nullptr);
+    if (real_filename != nullptr)
+    {
+        filename = real_filename;
+    }
+
+    // save to a tmpfile first so that even if the full operation is
+    // interrupted, the file on the disk will contain the substring ".tmp."
+    // to indicate that it's not the final product
+    char* const tmp = tr_strdup_printf("%s.tmp.XXXXXX", filename);
+    auto const fd = tr_sys_file_open_temp(tmp, error);
+    if (fd == TR_BAD_SYS_FILE)
+    {
+        tr_free(real_filename);
+        tr_free(tmp);
+        return false;
+    }
+
+    // save contents to the tmpfile
+    auto ok = writeContentsToFd(contents, fd, error);
+    tr_sys_file_close(fd, error);
+    if (!ok)
+    {
+        tr_sys_path_remove(tmp, nullptr);
+        tr_free(real_filename);
+        tr_free(tmp);
+        return false;
+    }
+
+    ok = tr_sys_path_rename(tmp, filename, error);
+    tr_free(real_filename);
+    tr_free(tmp);
+    return ok;
+}
+
 uint8_t* tr_loadFile(char const* path, size_t* size, tr_error** error)
 {
     char const* const err_fmt = _("Couldn't read \"%1$s\": %2$s");

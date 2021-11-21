@@ -14,7 +14,7 @@
 
 #include "transmission.h"
 
-#include "torrent-metainfo.h"
+#include "metainfo.h"
 
 struct tr_block_info
 {

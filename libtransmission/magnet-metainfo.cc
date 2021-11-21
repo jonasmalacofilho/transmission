@@ -15,7 +15,6 @@
 
 #include "crypto-utils.h"
 #include "error-types.h"
-#include "magnet-metainfo.h"
 #include "tr-assert.h"
 #include "utils.h"
 #include "variant.h"

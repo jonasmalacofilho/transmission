@@ -26,9 +26,9 @@
 #include "block-info.h"
 #include "completion.h"
 #include "file.h"
+#include "metainfo.h"
 #include "quark.h"
 #include "session.h"
-#include "torrent-metainfo.h"
 #include "tr-assert.h"
 
 class tr_swarm;
@@ -44,13 +44,9 @@ struct tr_torrent_tiers;
 
 void tr_torrentFree(tr_torrent* tor);
 
-void tr_ctorSetSave(tr_ctor* ctor, bool saveMetadataInOurTorrentsDir);
-
-bool tr_ctorGetSave(tr_ctor const* ctor);
-
-void tr_ctorInitTorrentPriorities(tr_ctor const* ctor, tr_torrent* tor);
-
+#if 0 // NOCOMMIT probably remove these
 void tr_ctorInitTorrentWanted(tr_ctor const* ctor, tr_torrent* tor);
+#endif
 
 /**
 ***
@@ -165,6 +161,7 @@ public:
 
     tr_session* session;
     tr_info info;
+    tr_torrent_metainfo metainfo;
 
     std::optional<double> verify_progress;
 

@@ -16,9 +16,8 @@
 #include "crypto-utils.h"
 #include "error-types.h"
 #include "error.h"
+#include "metainfo.h"
 #include "platform.h"
-#include "torrent-metainfo-public.h"
-#include "torrent-metainfo.h"
 #include "tr-assert.h"
 #include "utils.h"
 #include "variant.h"
@@ -353,7 +352,7 @@ tr_piece_index_t getBytePiece(tr_torrent_metainfo const& tm, uint64_t byte_offse
     return byte_offset == tm.total_size ? tm.n_pieces - 1 : byte_offset / tm.piece_size;
 }
 
-char const* parseImpl(tr_torrent_metainfo& setme, tr_variant* meta, std::byte const* benc, size_t benc_len)
+char const* parseImpl(tr_torrent_metainfo& setme, tr_variant* meta, std::string_view benc)
 {
     int64_t i = 0;
     auto sv = std::string_view{};
@@ -367,7 +366,7 @@ char const* parseImpl(tr_torrent_metainfo& setme, tr_variant* meta, std::byte co
         // Calculate the hash of the `info` dict.
         // This is the torrent's unique ID and is central to everything.
         size_t blen = 0;
-        auto* const bstr = reinterpret_cast<std::byte*>(tr_variantToStr(info_dict, TR_VARIANT_FMT_BENC, &blen));
+        char* const bstr = tr_variantToStr(info_dict, TR_VARIANT_FMT_BENC, &blen);
         tr_sha1(reinterpret_cast<uint8_t*>(std::data(setme.info_hash)), bstr, (int)blen, nullptr);
         tr_sha1_to_hex(std::data(setme.info_hash_chars), std::data(setme.info_hash));
 
@@ -377,14 +376,14 @@ char const* parseImpl(tr_torrent_metainfo& setme, tr_variant* meta, std::byte co
         //
         // Calculating this later from scratch is kind of expensive,
         // so do it here since we've already got the bencoded info dict.
-        auto const it = std::search(benc, benc + benc_len, bstr, bstr + blen);
-        setme.info_dict_offset = std::distance(benc, it);
+        auto const it = std::search(std::begin(benc), std::end(benc), bstr, bstr + blen);
+        setme.info_dict_offset = std::distance(std::begin(benc), it);
         setme.info_dict_size = blen;
 
         // In addition, remember the offset of the pieces dictionary entry.
         // This will be useful when we load piece checksums on demand.
         auto const key = "6:pieces"sv;
-        auto const* bkey = reinterpret_cast<std::byte const*>(std::data(key));
+        auto const* bkey = std::data(key);
         auto const pit = std::search(bstr, bstr + blen, bkey, bkey + std::size(key));
         setme.pieces_offset = setme.info_dict_offset + (pit - bstr) + std::size(key);
 
@@ -530,17 +529,15 @@ char const* parseImpl(tr_torrent_metainfo& setme, tr_variant* meta, std::byte co
 
 } // namespace
 
-bool tr_torrent_metainfo::parseBenc(std::byte const* benc, size_t benc_len, tr_error** error)
+bool tr_torrent_metainfo::parseBenc(std::string_view benc, tr_error** error)
 {
     auto top = tr_variant{};
-    auto const benc_parse_err = tr_variantFromBenc(&top, benc, benc_len);
-    if (benc_parse_err)
+    if (!tr_variantFromBuf(&top, TR_VARIANT_PARSE_BENC | TR_VARIANT_PARSE_INPLACE, benc, nullptr, error))
     {
-        tr_error_set(error, TR_ERROR_EINVAL, "Error parsing bencoded data: %s", tr_strerror(benc_parse_err));
         return false;
     }
 
-    auto const* const errmsg = parseImpl(*this, &top, benc, benc_len);
+    auto const* const errmsg = parseImpl(*this, &top, benc);
     tr_variantFree(&top);
     if (errmsg != nullptr)
     {
@@ -558,7 +555,7 @@ bool tr_torrent_metainfo::parseBenc(std::byte const* benc, size_t benc_len, tr_e
 tr_torrent_metainfo* tr_torrentMetainfoNewFromData(char const* data, size_t data_len, struct tr_error** error)
 {
     auto* tm = new tr_torrent_metainfo{};
-    if (!tm->parseBenc(reinterpret_cast<std::byte const*>(data), data_len, error))
+    if (!tm->parseBenc(std::string_view{ data, data_len }, error))
     {
         delete tm;
         return nullptr;
@@ -569,14 +566,14 @@ tr_torrent_metainfo* tr_torrentMetainfoNewFromData(char const* data, size_t data
 
 tr_torrent_metainfo* tr_torrentMetainfoNewFromFile(char const* filename, struct tr_error** error)
 {
-    auto benc = std::vector<std::byte>{};
+    auto benc = std::vector<char>{};
     if (!tr_loadFile(benc, filename, error))
     {
         return nullptr;
     }
 
     auto* tm = new tr_torrent_metainfo{};
-    if (!tm->parseBenc(std::data(benc), std::size(benc), error))
+    if (!tm->parseBenc(std::string_view{ std::data(benc), std::size(benc) }, error))
     {
         delete tm;
         return nullptr;
@@ -651,73 +648,6 @@ tr_torrent_metainfo_tracker_info* tr_torrentMetainfoTracker(
     setme->scrape_url = tr_quark_get_string(tracker.scrape_url);
     setme->tier = tracker.tier;
     return setme;
-}
-
-/// Transitional
-
-// TODO: move this to torrent-ctor and fill in the 'fixme'
-void tr_torrent_metainfo::setInfo(tr_info& setme) const
-{
-    setme.comment = tr_strvDup(this->comment);
-    setme.creator = tr_strvDup(this->creator);
-    setme.dateCreated = this->time_created;
-    setme.isFolder = std::size(this->files) != 1;
-    setme.isPrivate = this->is_private;
-    setme.name = tr_strvDup(this->name); // FIXME
-    setme.originalName = tr_strvDup(this->name);
-    setme.pieceCount = this->n_pieces;
-    setme.pieceSize = this->piece_size;
-    setme.pieces = static_cast<tr_sha1_digest_t*>(
-        tr_memdup(std::data(this->pieces), sizeof(tr_sha1_digest_t) * std::size(this->pieces)));
-    setme.source = tr_strvDup(this->source);
-    setme.torrent = nullptr; // FIXME
-    setme.totalSize = this->total_size;
-
-    std::copy_n(std::data(this->info_hash), std::size(this->info_hash), reinterpret_cast<std::byte*>(setme.hash));
-
-    auto const hashstr = this->infoHashString();
-    std::copy(std::begin(hashstr), std::end(hashstr), setme.hashString);
-
-    setme.webseedCount = std::size(this->webseed_urls);
-    setme.webseeds = tr_new(char*, setme.webseedCount);
-    std::transform(
-        std::begin(this->webseed_urls),
-        std::end(this->webseed_urls),
-        setme.webseeds,
-        [](auto const& url) { return tr_strvDup(url); });
-
-    int tracker_id = 0;
-    setme.trackerCount = std::size(this->trackers);
-    setme.trackers = tr_new(tr_tracker_info, setme.trackerCount);
-    std::transform(
-        std::begin(this->trackers),
-        std::end(this->trackers),
-        setme.trackers,
-        [&tracker_id](auto const& it)
-        {
-            auto info = tr_tracker_info{};
-            info.tier = it.first;
-            info.announce = tr_strvDup(tr_quark_get_string_view(it.second.announce_url));
-            info.scrape = tr_strvDup(tr_quark_get_string_view(it.second.scrape_url));
-            info.id = ++tracker_id;
-            return info;
-        });
-
-    setme.fileCount = std::size(files);
-    setme.files = tr_new(tr_file, setme.fileCount);
-    for (size_t i = 0, n = setme.fileCount; i < n; ++i)
-    {
-        auto& in = this->files[i];
-        auto& out = setme.files[i];
-        out.mtime = 0;
-        out.length = in.size;
-        out.name = tr_strvDup(in.path);
-        out.firstPiece = in.first_piece;
-        out.lastPiece = in.final_piece;
-        out.priority = 0; // FIXME
-        out.dnd = false; // FIXME
-        out.is_renamed = in.is_renamed;
-    }
 }
 
 void tr_torrentMetainfoSetInfo(tr_torrent_metainfo const* tm, tr_info* setme)

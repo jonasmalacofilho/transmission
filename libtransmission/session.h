@@ -146,6 +146,23 @@ public:
         return is_closing_;
     }
 
+    // torrent
+
+    // transitional. use the tr_sha1_digest_t variant if possible.
+    tr_torrent* torrent(uint8_t const* digest) const
+    {
+        auto& src = this->torrentsByHash;
+        auto it = src.find(digest);
+        return it == std::end(src) ? nullptr : it->second;
+    }
+
+    tr_torrent* torrent(tr_sha1_digest_t const& digest) const
+    {
+        auto& src = this->torrentsByHash;
+        auto it = src.find(reinterpret_cast<uint8_t const*>(std::data(digest)));
+        return it == std::end(src) ? nullptr : it->second;
+    }
+
     // download dir
 
     std::string const& downloadDir() const
