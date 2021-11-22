@@ -714,6 +714,7 @@ static void refreshCurrentDir(tr_torrent* tor);
 
 #include <iostream>
 
+#if 0
 static void torrentInitFromInfo(tr_torrent* tor)
 {
     tor->initBlockInfo(tor->info.totalSize, tor->info.pieceSize);
@@ -722,6 +723,7 @@ static void torrentInitFromInfo(tr_torrent* tor)
 
     tr_torrentInitFilePieces(tor);
 }
+#endif
 
 static void tr_torrentFireMetadataCompleted(tr_torrent* tor);
 
@@ -2232,16 +2234,16 @@ static void setFileWanted(tr_torrent* tor, tr_file_index_t fileIndex, bool wante
     }
 }
 
-void tr_torrentInitFileDLs(tr_torrent* tor, tr_file_index_t const* files, tr_file_index_t fileCount, bool doDownload)
+static void tr_torrentInitFileDLs(tr_torrent* tor, tr_file_index_t const* files, tr_file_index_t n_files, bool wanted)
 {
     TR_ASSERT(tr_isTorrent(tor));
     auto const lock = tor->unique_lock();
 
-    for (tr_file_index_t i = 0; i < fileCount; ++i)
+    for (tr_file_index_t i = 0; i < n_files; ++i)
     {
         if (files[i] < tor->info.fileCount)
         {
-            setFileDND(tor, files[i], doDownload);
+            setFileWanted(tor, i, wanted);
         }
     }
 

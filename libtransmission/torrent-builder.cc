@@ -21,118 +21,160 @@
 #include "file.h"
 #include "metainfo.h"
 #include "metainfo.h"
+#include "peer-mgr.h"
 #include "platform.h"
+#include "resume.h"
 #include "session.h"
-#include "torrent-ctor.h"
+#include "torrent-builder.h"
 #include "torrent.h"
 #include "tr-assert.h"
 #include "utils.h"
 
 using namespace std::literals;
 
-tr_ctor::tr_ctor(tr_session* session)
+static int next_unique_id = 1;
+
+tr_torrent_builder::tr_torrent_builder(tr_session* session, tr_torrent_metainfo*&& metainfo)
+    : session_{ session }
 {
-    setDeleteSource(session->deleteSourceTorrent);
-    setDownloadDir(session->downloadDir());
-    setPaused(tr_sessionGetPaused(session));
-    setPeerLimit(session->peerLimitPerTorrent);
-    setIncompleteDir(session->incompleteDir());
+    tor_ = new tr_torrent{};
+    tor_->initBlockInfo(metainfo_->total_size, metainfo_->piece_size);
+    tor_->addedDate = tr_time();
+    tor_->anyDate = tr_time();
+    tor_->bandwidth = new Bandwidth();
+    tor_->bandwidth->setPriority(TR_PRI_NORMAL);
+    tor_->checked_pieces_ = tr_bitfield{ metainfo_->n_pieces };
+    tor_->dnd_pieces_ = tr_bitfield{ metainfo_->n_pieces };
+    tor_->downloadDir = tr_strvDup(session->downloadDir());
+    tor_->file_settings_.resize(std::size(tor_->metainfo.files));
+    tor_->incompleteDir = session_->useIncompleteDir() ? tr_strvDup(session->incompleteDir()) : nullptr;
+    tor_->isRunning = !tr_sessionGetPaused(session_);
+    tor_->maxConnectedPeers = session->peerLimitPerTorrent;
+    tor_->metainfo = *metainfo_;
+    tor_->queuePosition = tr_sessionCountTorrents(session_);
+    tor_->session = session_;
+    tor_->uniqueId = next_unique_id++;
+    tr_sha1(tor_->obfuscatedHash, "req2", 4, tor_->metainfo.info_hash, SHA_DIGEST_LENGTH, nullptr);
+    tr_cpConstruct(&tor_->completion, tor_);
+    tr_torrentSetIdleLimit(tor_, tr_sessionGetIdleLimit(tor_->session));
+    tr_torrentSetIdleMode(tor_, TR_IDLELIMIT_GLOBAL);
+    tr_torrentSetRatioLimit(tor_, tr_sessionGetRatioLimit(tor_->session));
+    tr_torrentSetRatioMode(tor_, TR_RATIOLIMIT_GLOBAL);
+    tr_torrentSetSpeedLimit_Bps(tor_, TR_DOWN, tr_sessionGetSpeedLimit_Bps(tor_->session, TR_DOWN));
+    tr_torrentSetSpeedLimit_Bps(tor_, TR_UP, tr_sessionGetSpeedLimit_Bps(tor_->session, TR_UP));
+    tr_torrentUseSessionLimits(tor_, true);
+    tr_torrentUseSpeedLimit(tor_, TR_DOWN, false);
+    tr_torrentUseSpeedLimit(tor_, TR_UP, false);
+
+    delete metainfo;
 }
 
-tr_torrent* tr_ctor::createTorrent(tr_session* session, tr_error** error)
+void tr_torrent_builder::forcePaused()
 {
-    if (session == nullptr || !tm_)
+    force_paused_ = true;
+    tor_->isRunning = false;
+}
+
+void tr_torrent_builder::setBandwidthPriority(tr_priority_t priority)
+{
+    tor_->bandwidth->setPriority(priority);
+}
+
+void tr_torrent_builder::setDownloadDir(std::string_view directory)
+{
+    // TODO(ckerr): add tr_torrent::setDownloadDir(std::string_view)
+    auto const sz_directory = std::string{ directory };
+    tr_torrentSetDownloadDir(tor_, sz_directory.c_str());
+}
+
+void tr_torrent_builder::setFilePriorities(tr_file_index_t const* files, tr_file_index_t file_count, tr_priority_t priority)
+{
+    tr_torrentSetFilePriorities(tor_, files, file_count, priority);
+}
+
+void tr_torrent_builder::setFilesWanted(tr_file_index_t const* files, tr_file_index_t file_count, bool wanted)
+{
+    tr_torrentSetFileDLs(tor_, files, file_count, wanted);
+}
+
+void tr_torrent_builder::setPaused(bool paused)
+{
+    tor_->isRunning = !paused;
+}
+
+void tr_torrent_builder::setPeerLimit(uint16_t limit)
+{
+    tr_torrentSetPeerLimit(tor_, limit);
+}
+
+void tr_torrent_builder::manageSourceFile(tr_error** error) const
+{
+    if (std::empty(metainfo_->source_filename))
     {
-        tr_error_set_literal(error, EINVAL, "no session or no metainfo");
-        return nullptr;
+        return;
     }
 
-    if (auto* dupe = session->torrent(tm_->info_hash); dupe != nullptr)
+    auto tmpstr = std::string{};
+
+    switch (added_file_action_)
+    {
+    case AddedFile::Trash:
+        trash_func_(metainfo_->source_filename.c_str());
+        break;
+
+    case AddedFile::Rename:
+        tmpstr = tr_strvJoin(metainfo_->source_filename, ".added"sv);
+        tr_sys_path_rename(metainfo_->source_filename.c_str(), tmpstr.c_str(), error);
+        break;
+
+    case AddedFile::Ignore:
+        // no-op
+        break;
+    }
+}
+
+tr_torrent* tr_torrent_builder::build(tr_error** error) const
+{
+    if (auto* dupe = session_->torrent(metainfo_->info_hash); dupe != nullptr)
     {
         tr_error_set_literal(error, EEXIST, "duplicate torrent");
         return nullptr;
     }
 
-    setPaused(TR_FALLBACK, tr_sessionGetPaused(session));
-    setPeerLimit(TR_FALLBACK, session->peerLimitPerTorrent);
-    setDownloadDir(TR_FALLBACK, tr_sessionGetDownloadDir(session));
-    if (!delete_source_)
-    {
-        setDeleteSource(tr_sessionGetDeleteSource(session));
-    }
+    manageSourceFile(error);
 
-    static int next_unique_id = 1;
-    auto* const tor = new tr_torrent{};
-    tor->metainfo = *tm_;
-    tor->session = session;
-    tor->session = session;
-    tor->uniqueId = next_unique_id++;
-    tor->queuePosition = tr_sessionCountTorrents(session);
-    tor->dnd_pieces_ = tr_bitfield{ tor->info.pieceCount };
-    tor->checked_pieces_ = tr_bitfield{ tor->info.pieceCount };
-    tr_sha1(tor->obfuscatedHash, "req2", 4, tor->metainfo.info_hash, SHA_DIGEST_LENGTH, nullptr);
-
-    auto download_dir = downloadDir(TR_FORCE);
-    if (!download_dir)
-    {
-        download_dir = ctor->downloadDir(TR_FALLBACK);
-    }
-    if (download_dir)
-    {
-        tor->downloadDir = tr_strvDup(*download_dir);
-    }
-
-    if (tr_sessionIsIncompleteDirEnabled(session))
-    {
-        auto incomplete_dir = ctor->incompleteDir();
-        if (!incomplete_dir)
-        {
-            incomplete_dir = tr_sessionGetIncompleteDir(session);
-        }
-
-        tor->incompleteDir = tr_strvDup(*incomplete_dir);
-    }
-
-    tor->bandwidth = new Bandwidth(session->bandwidth);
-
-    tor->bandwidth->setPriority(ctor->bandwidthPriority());
-    tor->error = TR_STAT_OK;
-    tor->finishedSeedingByIdle = false;
-
-    tr_peerMgrAddTorrent(session->peerMgr, tor);
-
-    TR_ASSERT(tor->downloadedCur == 0);
-    TR_ASSERT(tor->uploadedCur == 0);
-
-    tr_torrentSetDateAdded(tor, tr_time()); /* this is a default value to be overwritten by the resume file */
-
-    torrentInitFromInfo(tor);
+    tor_->bandwidth->setParent(tor_->session->bandwidth);
+    tr_peerMgrAddTorrent(session_->peerMgr, tor_);
 
     // tr_torrentLoadResume() calls a lot of tr_torrentSetFoo() methods
     // that set things as dirty, but... these settings being loaded are
     // the same ones that would be saved back again, so don't let them
     // affect the 'is dirty' flag.
-    auto const was_dirty = tor->isDirty;
-    bool didRenameResumeFileToHashOnlyName = false;
-    auto const loaded = tr_torrentLoadResume(tor, ~(uint64_t)0, ctor, &didRenameResumeFileToHashOnlyName);
-    tor->isDirty = was_dirty;
+    auto const was_dirty = tor_->isDirty;
+    bool resume_file_was_migrated = false;
+    auto const loaded = tr_torrentLoadResume(tor_, ~(uint64_t)0, &resume_file_was_migrated);
+    tor_->isDirty = was_dirty;
 
-    if (didRenameResumeFileToHashOnlyName)
+    if (force_paused_)
     {
-        /* Rename torrent file as well */
-        >> tr_metainfoMigrateFile(session, &tor->info, TR_METAINFO_BASENAME_NAME_AND_PARTIAL_HASH, TR_METAINFO_BASENAME_HASH);
+        tor_->isRunning = false;
     }
 
-    tor->completeness = tr_cpGetStatus(&tor->completion);
-    setLocalErrorIfFilesDisappeared(tor);
-
-    // TODO(ckerr): this paragraph is awkward because it's
-    // trying to fit a new workflow into old code.
-    // can tr_torrentInitFilePriority, setFileWanted be udpated to this flow?
-    for (tr_file_index_t i = 0; i < tor->info.fileCount; ++i)
+#if 0
+    // FIXME(ckerr)
+    if (resume_file_was_migrated)
     {
-        tr_torrentInitFilePriority(tor, i, tor->info.files[i].priority);
-        setFileWanted(tor, i, !tor->info.files[i].dnd);
+        tr_metainfoMigrateFile(session, &tor->info, TR_METAINFO_BASENAME_NAME_AND_PARTIAL_HASH, TR_METAINFO_BASENAME_HASH);
+    }
+#endif
+    tor_->completeness = tr_cpGetStatus(&tor_->completion);
+    // FIXME(ckerr)
+    // setLocalErrorIfFilesDisappeared(tor);
+
+    for (tr_file_index_t i = 0, n = std::size(tor->metainfo.files); i < n; ++i)
+    {
+        setFileWanted(tor, i, !tor->file_settings_[i].dnd);
+        tr_torrentInitFilePriority(tor, i, tor->file_settings_[i].priority);
     }
     tr_cpInvalidateDND(&tor->completion);
 

@@ -133,6 +133,9 @@ struct tr_torrent_metainfo : public tr_magnet_metainfo
     tr_piece_index_t n_pieces = 0;
 
     bool is_private = true;
+
+    // set only if `parseTorrentFile()` was used
+    std::string source_filename;
 };
 
 // FIXME(ckerr): move the rest of this file to a private header OR REMOVE

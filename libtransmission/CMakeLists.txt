@@ -53,7 +53,7 @@ set(PROJECT_FILES
   stats.cc
   subprocess-posix.cc
   subprocess-win32.cc
-  torrent-ctor.cc
+  torrent-builder.cc
   torrent-magnet.cc
   torrent.cc
   tr-assert.cc
@@ -133,6 +133,8 @@ set(${PROJECT_NAME}_PUBLIC_HEADERS
     tr-assert.h
     tr-getopt.h
     tr-macros.h
+    transmission-torrent-builder.h
+    transmission-torrent-metainfo.h
     transmission.h
     utils.h
     variant.h
@@ -178,7 +180,7 @@ set(${PROJECT_NAME}_PRIVATE_HEADERS
     session.h
     stats.h
     subprocess.h
-    torrent-ctor.h
+    torrent-builder.h
     torrent-magnet.h
     torrent.h
     tr-dht.h
