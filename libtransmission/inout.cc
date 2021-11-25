@@ -177,7 +177,7 @@ void tr_ioFindFileLocation(
 {
     TR_ASSERT(tr_isTorrent(tor));
 
-    auto const offset = tor->totalOffset(pieceIndex, pieceOffset);
+    auto const offset = tor->offset(pieceIndex, pieceOffset);
     TR_ASSERT(offset < tor->info.totalSize);
 
     auto const* file = static_cast<tr_file const*>(

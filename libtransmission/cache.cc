@@ -100,7 +100,7 @@ static int getBlockRun(tr_cache const* cache, int pos, struct run_info* info)
     {
         struct cache_block const* b = blocks[pos + len - 1];
         info->last_block_time = b->time;
-        info->is_piece_done = tr_torrentPieceIsComplete(b->tor, b->piece);
+        info->is_piece_done = b->tor->hasPiece(b->piece);
         info->is_multi_piece = b->piece != blocks[pos]->piece;
         info->len = len;
         info->pos = pos;
@@ -274,6 +274,10 @@ tr_cache* tr_cacheNew(int64_t max_bytes)
 
 void tr_cacheFree(tr_cache* cache)
 {
+    // FIXME(ckerr): this assertion isn't _always_ going to be true,
+    // e.g. if writing to disk failed due to disk full / permission error etc
+    // then there is still going to be data sitting in the cache on shutdown.
+    // Make this assertion smarter or remove it.
     TR_ASSERT(tr_ptrArrayEmpty(&cache->blocks));
 
     tr_ptrArrayDestruct(&cache->blocks, nullptr);
@@ -309,7 +313,7 @@ static struct cache_block* findBlock(tr_cache* cache, tr_torrent* torrent, tr_pi
 {
     struct cache_block key;
     key.tor = torrent;
-    key.block = _tr_block(torrent, piece, offset);
+    key.block = torrent->blockOf(piece, offset);
     return static_cast<struct cache_block*>(tr_ptrArrayFindSorted(&cache->blocks, &key, cache_block_compare));
 }
 
@@ -332,7 +336,7 @@ int tr_cacheWriteBlock(
         cb->piece = piece;
         cb->offset = offset;
         cb->length = length;
-        cb->block = _tr_block(torrent, piece, offset);
+        cb->block = torrent->blockOf(piece, offset);
         cb->evbuf = evbuffer_new();
         tr_ptrArrayInsertSorted(&cache->blocks, cb, cache_block_compare);
     }
@@ -422,10 +426,10 @@ int tr_cacheFlushDone(tr_cache* cache)
 
 int tr_cacheFlushFile(tr_cache* cache, tr_torrent* torrent, tr_file_index_t i)
 {
-    auto const [first, last] = tr_torGetFileBlockRange(torrent, i);
+    auto const [begin, end] = tr_torGetFileBlockSpan(torrent, i);
 
-    int pos = findBlockPos(cache, torrent, first);
-    dbgmsg("flushing file %d from cache to disk: blocks [%zu...%zu]", (int)i, (size_t)first, (size_t)last);
+    int pos = findBlockPos(cache, torrent, begin);
+    dbgmsg("flushing file %d from cache to disk: blocks [%zu...%zu)", (int)i, (size_t)begin, (size_t)end);
 
     /* flush out all the blocks in that file */
     int err = 0;
@@ -438,7 +442,7 @@ int tr_cacheFlushFile(tr_cache* cache, tr_torrent* torrent, tr_file_index_t i)
             break;
         }
 
-        if (b->block < first || b->block > last)
+        if (b->block < begin || b->block >= end)
         {
             break;
         }

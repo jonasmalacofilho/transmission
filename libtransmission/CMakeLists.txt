@@ -36,9 +36,9 @@ set(PROJECT_FILES
   natpmp.cc
   net.cc
   peer-io.cc
-  peer-mgr.cc
   peer-mgr-active-requests.cc
   peer-mgr-wishlist.cc
+  peer-mgr.cc
   peer-msgs.cc
   platform-quota.cc
   platform.cc
@@ -74,8 +74,8 @@ set(PROJECT_FILES
   watchdir-kqueue.cc
   watchdir-win32.cc
   watchdir.cc
-  web.cc
   web-utils.cc
+  web.cc
   webseed.cc
 )
 
@@ -166,9 +166,9 @@ set(${PROJECT_NAME}_PRIVATE_HEADERS
     net.h
     peer-common.h
     peer-io.h
-    peer-mgr.h
     peer-mgr-active-requests.h
     peer-mgr-wishlist.h
+    peer-mgr.h
     peer-msgs.h
     peer-socket.h
     platform-quota.h

@@ -315,7 +315,7 @@ int tr_dhtInit(tr_session* ss)
 
     auto const dat_file = tr_strvPath(ss->configDir, "dht.dat"sv);
     auto benc = tr_variant{};
-    auto const ok = tr_variantFromFile(&benc, TR_VARIANT_PARSE_JSON, dat_file.c_str());
+    auto const ok = tr_variantFromFile(&benc, TR_VARIANT_PARSE_BENC, dat_file.c_str());
 
     bool have_id = false;
     uint8_t* nodes = nullptr;
@@ -324,14 +324,14 @@ int tr_dhtInit(tr_session* ss)
     size_t len6 = 0;
     if (ok)
     {
-        uint8_t const* raw = nullptr;
-        have_id = tr_variantDictFindRaw(&benc, TR_KEY_id, &raw, &len);
-
-        if (have_id && len == 20)
+        auto sv = std::string_view{};
+        have_id = tr_variantDictFindStrView(&benc, TR_KEY_id, &sv);
+        if (have_id && std::size(sv) == 20)
         {
-            memcpy(myid, raw, len);
+            std::copy(std::begin(sv), std::end(sv), myid);
         }
 
+        uint8_t const* raw = nullptr;
         if (ss->udp_socket != TR_BAD_SOCKET && tr_variantDictFindRaw(&benc, TR_KEY_nodes, &raw, &len) && len % 6 == 0)
         {
             nodes = static_cast<uint8_t*>(tr_memdup(raw, len));

@@ -37,7 +37,7 @@ static int next_unique_id = 1;
 tr_torrent_builder::tr_torrent_builder(tr_session* session, tr_torrent_metainfo*&& metainfo)
     : session_{ session }
 {
-    tor_ = new tr_torrent{};
+    tor_ = new tr_torrent{ tr_block_info{ metainfo_->total_size, metainfo_->piece_size } };
     tor_->initBlockInfo(metainfo_->total_size, metainfo_->piece_size);
     tor_->addedDate = tr_time();
     tor_->anyDate = tr_time();

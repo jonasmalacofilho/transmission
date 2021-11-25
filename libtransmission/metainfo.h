@@ -101,10 +101,10 @@ struct tr_torrent_metainfo : public tr_magnet_metainfo
         std::string path;
         bool is_renamed = false;
 
-        file_t(std::string path_in, uint64_t size_in, bool is_renamed)
+        file_t(std::string path_in, uint64_t size_in, bool is_renamed_in)
             : size{ size_in }
             , path{ std::move(path_in) }
-            , is_renamed{ is_renamed }
+            , is_renamed{ is_renamed_in }
         {
         }
     };

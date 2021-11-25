@@ -539,11 +539,12 @@ static int countActiveWebseeds(tr_swarm* s)
 }
 
 // TODO: if we keep this, add equivalent API to ActiveRequest
-void tr_peerMgrClientSentRequests(tr_torrent* torrent, tr_peer* peer, tr_block_range_t range)
+void tr_peerMgrClientSentRequests(tr_torrent* torrent, tr_peer* peer, tr_block_span_t span)
 {
+    // std::cout << __FILE__ << ':' << __LINE__ << " tr_peerMgrClientSentRequests [" << range.begin << "..." << range.end << ')' << std::endl;
     auto const now = tr_time();
 
-    for (tr_block_index_t block = range.first; block <= range.last; ++block)
+    for (tr_block_index_t block = span.begin; block < span.end; ++block)
     {
         torrent->swarm->active_requests.add(block, peer, now);
     }
@@ -553,10 +554,10 @@ static void updateEndgame(tr_swarm* s)
 {
     /* we consider ourselves to be in endgame if the number of bytes
        we've got requested is >= the number of bytes left to download */
-    s->endgame = uint64_t(std::size(s->active_requests)) * s->tor->block_size >= tr_torrentGetLeftUntilDone(s->tor);
+    s->endgame = uint64_t(std::size(s->active_requests)) * s->tor->block_size >= s->tor->leftUntilDone();
 }
 
-std::vector<tr_block_range_t> tr_peerMgrGetNextRequests(tr_torrent* torrent, tr_peer* peer, size_t numwant)
+std::vector<tr_block_span_t> tr_peerMgrGetNextRequests(tr_torrent* torrent, tr_peer* peer, size_t numwant)
 {
     class PeerInfoImpl : public Wishlist::PeerInfo
     {
@@ -570,7 +571,7 @@ std::vector<tr_block_range_t> tr_peerMgrGetNextRequests(tr_torrent* torrent, tr_
 
         bool clientCanRequestBlock(tr_block_index_t block) const override
         {
-            return !tr_torrentBlockIsComplete(torrent_, block) && !swarm_->active_requests.has(block, peer_);
+            return !torrent_->hasBlock(block) && !swarm_->active_requests.has(block, peer_);
         }
 
         bool clientCanRequestPiece(tr_piece_index_t piece) const override
@@ -590,12 +591,12 @@ std::vector<tr_block_range_t> tr_peerMgrGetNextRequests(tr_torrent* torrent, tr_
 
         size_t countMissingBlocks(tr_piece_index_t piece) const override
         {
-            return tr_torrentMissingBlocksInPiece(torrent_, piece);
+            return torrent_->countMissingBlocksInPiece(piece);
         }
 
-        tr_block_range_t blockRange(tr_piece_index_t piece) const override
+        tr_block_span_t blockSpan(tr_piece_index_t piece) const override
         {
-            return tr_torGetPieceBlockRange(torrent_, piece);
+            return torrent_->blockSpanForPiece(piece);
         }
 
         tr_piece_index_t countAllPieces() const override
@@ -704,7 +705,7 @@ static void peerSuggestedPiece(tr_swarm* /*s*/, tr_peer* /*peer*/, tr_piece_inde
     }
 
     /* don't ask for it if we've already got it */
-    if (tr_torrentPieceIsComplete(t->tor, pieceIndex))
+    if (t->tor->hasPiece(pieceIndex))
     {
         return;
     }
@@ -724,14 +725,14 @@ static void peerSuggestedPiece(tr_swarm* /*s*/, tr_peer* /*peer*/, tr_piece_inde
     /* request the blocks that we don't have in this piece */
     {
         tr_torrent const* tor = t->tor;
-        auto const [first, last] = tr_torGetPieceBlockRange(t->tor, pieceIndex);
+        auto const [begin, end] = tor->blockSpanForPiece(pieceIndex);
 
-        for (tr_block_index_t b = first; b <= last; ++b)
+        for (tr_block_index_t b = begin; b < end; ++b)
         {
-            if (tr_torrentBlockIsComplete(tor, b))
+            if (tor->hasBlock(b))
             {
                 uint32_t const offset = getBlockOffsetInPiece(tor, b);
-                uint32_t const length = tr_torBlockCountBytes(tor, b);
+                uint32_t const length = tor->countBytesInBlock(b);
                 tr_peerMsgsAddRequest(peer->msgs, pieceIndex, offset, length);
                 incrementPieceRequests(t, pieceIndex);
             }
@@ -823,7 +824,7 @@ static void peerCallbackFunc(tr_peer* peer, tr_peer_event const* e, void* vs)
         break;
 
     case TR_PEER_CLIENT_GOT_REJ:
-        s->active_requests.remove(_tr_block(s->tor, e->pieceIndex, e->offset), peer);
+        s->active_requests.remove(s->tor->blockOf(e->pieceIndex, e->offset), peer);
         break;
 
     case TR_PEER_CLIENT_GOT_CHOKE:
@@ -850,7 +851,7 @@ static void peerCallbackFunc(tr_peer* peer, tr_peer_event const* e, void* vs)
         {
             tr_torrent* tor = s->tor;
             tr_piece_index_t const p = e->pieceIndex;
-            tr_block_index_t const block = _tr_block(tor, p, e->offset);
+            tr_block_index_t const block = tor->blockOf(p, e->offset);
             cancelAllRequestsForBlock(s, block, peer);
             peer->blocksSentToClient.add(tr_time(), 1);
             tr_torrentGotBlock(tor, block);
@@ -1589,7 +1590,7 @@ void tr_peerMgrTorrentAvailability(tr_torrent const* tor, int8_t* tab, unsigned 
         {
             int const piece = i * interval;
 
-            if (isSeed || tr_torrentPieceIsComplete(tor, piece))
+            if (isSeed || tor->hasPiece(piece))
             {
                 tab[i] = -1;
             }
@@ -1668,7 +1669,7 @@ uint64_t tr_peerMgrGetDesiredAvailable(tr_torrent const* tor)
     {
         if (peers[i]->atom != nullptr && atomIsSeed(peers[i]->atom))
         {
-            return tr_torrentGetLeftUntilDone(tor);
+            return tor->leftUntilDone();
         }
     }
 
@@ -1694,7 +1695,7 @@ uint64_t tr_peerMgrGetDesiredAvailable(tr_torrent const* tor)
     {
         if (!tor->pieceIsDnd(i) && have.at(i))
         {
-            desired_available += tr_torrentMissingBytesInPiece(tor, i);
+            desired_available += tor->countMissingBytesInPiece(i);
         }
     }
 
@@ -2020,7 +2021,7 @@ static void rechokeDownloads(tr_swarm* s)
 
         for (int i = 0; i < n; ++i)
         {
-            piece_is_interesting[i] = !tor->pieceIsDnd(i) && !tr_torrentPieceIsComplete(tor, i);
+            piece_is_interesting[i] = !tor->pieceIsDnd(i) && !tor->hasPiece(i);
         }
 
         /* decide WHICH peers to be interested in (based on their cancel-to-block ratio) */

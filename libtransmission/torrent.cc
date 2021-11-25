@@ -50,7 +50,7 @@
 #include "subprocess.h"
 #include "torrent-magnet.h"
 #include "torrent.h"
-#include "torrent-ctor.h"
+#include "torrent-builder.h"
 #include "tr-assert.h"
 #include "trevent.h" /* tr_runInEventThread() */
 #include "utils.h"
@@ -361,7 +361,7 @@ static bool tr_torrentGetSeedRatioBytes(tr_torrent const* tor, uint64_t* setmeLe
     {
         uint64_t const u = tor->uploadedCur + tor->uploadedPrev;
         uint64_t const d = tor->downloadedCur + tor->downloadedPrev;
-        uint64_t const baseline = d != 0 ? d : tr_cpSizeWhenDone(&tor->completion);
+        uint64_t const baseline = d != 0 ? d : tor->completion.sizeWhenDone();
         uint64_t const goal = baseline * seedRatio;
 
         if (setmeLeft != nullptr)
@@ -589,33 +589,17 @@ static void onTrackerResponse(tr_torrent* tor, tr_tracker_event const* event, vo
 ****
 ***/
 
-static constexpr tr_piece_index_t getBytePiece(tr_info const* info, uint64_t byteOffset)
+static constexpr void initFilePieces(tr_torrent* tor, tr_file_index_t fileIndex)
 {
-    TR_ASSERT(info != nullptr);
-    TR_ASSERT(info->pieceSize != 0);
+    TR_ASSERT(tor != nullptr);
+    TR_ASSERT(fileIndex < tor->info.fileCount);
 
-    tr_piece_index_t piece = byteOffset / info->pieceSize;
+    tr_file* file = &tor->info.files[fileIndex];
+    uint64_t first_byte = file->offset;
+    uint64_t last_byte = first_byte + (file->length != 0 ? file->length - 1 : 0);
 
-    /* handle 0-byte files at the end of a torrent */
-    if (byteOffset == info->totalSize)
-    {
-        piece = info->pieceCount - 1;
-    }
-
-    return piece;
-}
-
-static constexpr void initFilePieces(tr_info* info, tr_file_index_t fileIndex)
-{
-    TR_ASSERT(info != nullptr);
-    TR_ASSERT(fileIndex < info->fileCount);
-
-    tr_file* file = &info->files[fileIndex];
-    uint64_t firstByte = file->offset;
-    uint64_t lastByte = firstByte + (file->length != 0 ? file->length - 1 : 0);
-
-    file->firstPiece = getBytePiece(info, firstByte);
-    file->lastPiece = getBytePiece(info, lastByte);
+    file->firstPiece = tor->pieceOf(first_byte);
+    file->lastPiece = tor->pieceOf(last_byte);
 }
 
 static constexpr bool pieceHasFile(tr_piece_index_t piece, tr_file const* file)
@@ -670,7 +654,7 @@ static void tr_torrentInitFilePieces(tr_torrent* tor)
     {
         inf->files[f].offset = offset;
         offset += inf->files[f].length;
-        initFilePieces(inf, f);
+        initFilePieces(tor, f);
     }
 }
 
@@ -710,26 +694,13 @@ static void tr_torrentInitPiecePriorities(tr_torrent* tor)
 
 static void torrentStart(tr_torrent* tor, bool bypass_queue);
 
-static void refreshCurrentDir(tr_torrent* tor);
-
-#include <iostream>
-
-#if 0
-static void torrentInitFromInfo(tr_torrent* tor)
-{
-    tor->initBlockInfo(tor->info.totalSize, tor->info.pieceSize);
-
-    tr_cpConstruct(&tor->completion, tor);
-
-    tr_torrentInitFilePieces(tor);
-}
-#endif
-
 static void tr_torrentFireMetadataCompleted(tr_torrent* tor);
 
 void tr_torrentGotNewInfoDict(tr_torrent* tor)
 {
-    torrentInitFromInfo(tor);
+    tor->initSizes(tor->info.totalSize, tor->info.pieceSize);
+    tor->completion = tr_completion{ tor, tor };
+    tr_torrentInitFilePieces(tor);
 
     tr_peerMgrOnTorrentGotMetainfo(tor);
 
@@ -753,7 +724,7 @@ static bool hasAnyLocalData(tr_torrent const* tor)
 
 static bool setLocalErrorIfFilesDisappeared(tr_torrent* tor)
 {
-    bool const disappeared = tr_torrentHaveTotal(tor) > 0 && !hasAnyLocalData(tor);
+    bool const disappeared = tor->hasTotal() > 0 && !hasAnyLocalData(tor);
 
     if (disappeared)
     {
@@ -836,7 +807,9 @@ static void torrentInit(tr_torrent* tor, tr_ctor const* ctor)
 
     tr_torrentSetDateAdded(tor, tr_time()); /* this is a default value to be overwritten by the resume file */
 
-    torrentInitFromInfo(tor);
+    tor->initSizes(tor->info.totalSize, tor->info.pieceSize);
+    tor->completion = tr_completion{ tor, tor };
+    tr_torrentInitFilePieces(tor);
 
     // tr_torrentLoadResume() calls a lot of tr_torrentSetFoo() methods
     // that set things as dirty, but... these settings being loaded are
@@ -853,7 +826,7 @@ static void torrentInit(tr_torrent* tor, tr_ctor const* ctor)
         tr_metainfoMigrateFile(session, &tor->info, TR_METAINFO_BASENAME_NAME_AND_PARTIAL_HASH, TR_METAINFO_BASENAME_HASH);
     }
 
-    tor->completeness = tr_cpGetStatus(&tor->completion);
+    tor->completeness = tor->completion.status();
     setLocalErrorIfFilesDisappeared(tor);
 
     // TODO(ckerr): this paragraph is awkward because it's
@@ -999,8 +972,8 @@ tr_torrent* tr_torrentNew(tr_ctor const* ctor, int* setme_error, int* setme_dupl
         return nullptr;
     }
 
-    auto* tor = new tr_torrent{};
-    tor->takeMetainfo(std::move(*parsed));
+    auto* tor = new tr_torrent{ parsed->info };
+    tor->swapMetainfo(*parsed);
     torrentInit(tor, ctor);
     return tor;
 }
@@ -1186,12 +1159,12 @@ tr_stat const* tr_torrentStat(tr_torrent* tor)
     auto const pieceDownloadSpeed_Bps = tor->bandwidth->getPieceSpeedBytesPerSecond(now, TR_DOWN);
     s->pieceDownloadSpeed_KBps = toSpeedKBps(pieceDownloadSpeed_Bps);
 
-    s->percentComplete = tr_cpPercentComplete(&tor->completion);
+    s->percentComplete = tor->completion.percentComplete();
     s->metadataPercentComplete = tr_torrentGetMetadataPercent(tor);
 
-    s->percentDone = tr_cpPercentDone(&tor->completion);
-    s->leftUntilDone = tr_torrentGetLeftUntilDone(tor);
-    s->sizeWhenDone = tr_cpSizeWhenDone(&tor->completion);
+    s->percentDone = tor->completion.percentDone();
+    s->leftUntilDone = tor->completion.leftUntilDone();
+    s->sizeWhenDone = tor->completion.sizeWhenDone();
     s->recheckProgress = s->activity == TR_STATUS_CHECK ? getVerifyProgress(tor) : 0;
     s->activityDate = tor->activityDate;
     s->addedDate = tor->addedDate;
@@ -1204,8 +1177,8 @@ tr_stat const* tr_torrentStat(tr_torrent* tor)
     s->corruptEver = tor->corruptCur + tor->corruptPrev;
     s->downloadedEver = tor->downloadedCur + tor->downloadedPrev;
     s->uploadedEver = tor->uploadedCur + tor->uploadedPrev;
-    s->haveValid = tr_cpHaveValid(&tor->completion);
-    s->haveUnchecked = tr_torrentHaveTotal(tor) - s->haveValid;
+    s->haveValid = tor->completion.hasValid();
+    s->haveUnchecked = tor->hasTotal() - s->haveValid;
     s->desiredAvailable = tr_peerMgrGetDesiredAvailable(tor);
 
     s->ratio = tr_getRatio(s->uploadedEver, s->downloadedEver != 0 ? s->downloadedEver : s->haveValid);
@@ -1322,33 +1295,39 @@ static uint64_t countFileBytesCompleted(tr_torrent const* tor, tr_file_index_t i
         return 0;
     }
 
-    auto const [first, last] = tr_torGetFileBlockRange(tor, index);
+    auto const [begin, end] = tr_torGetFileBlockSpan(tor, index);
+    auto const n = end - begin;
 
-    if (first == last)
+    if (n == 0)
     {
-        return tr_torrentBlockIsComplete(tor, first) ? f.length : 0;
+        return 0;
+    }
+
+    if (n == 1)
+    {
+        return tor->hasBlock(begin) ? f.length : 0;
     }
 
     auto total = uint64_t{};
 
     // the first block
-    if (tr_torrentBlockIsComplete(tor, first))
+    if (tor->hasBlock(begin))
     {
         total += tor->block_size - f.offset % tor->block_size;
     }
 
     // the middle blocks
-    if (first + 1 < last)
+    if (begin + 1 < end)
     {
-        uint64_t u = tor->completion.blockBitfield->count(first + 1, last);
+        uint64_t u = tor->completion.blocks().count(begin + 1, end - 1);
         u *= tor->block_size;
         total += u;
     }
 
     // the last block
-    if (tr_torrentBlockIsComplete(tor, last))
+    if (tor->hasBlock(end - 1))
     {
-        total += f.offset + f.length - (uint64_t)tor->block_size * last;
+        total += f.offset + f.length - (uint64_t)tor->block_size * (end - 1);
     }
 
     return total;
@@ -1415,9 +1394,9 @@ void tr_torrentAvailability(tr_torrent const* tor, int8_t* tab, int size)
     }
 }
 
-void tr_torrentAmountFinished(tr_torrent const* tor, float* tab, int size)
+void tr_torrentAmountFinished(tr_torrent const* tor, float* tabs, int n_tabs)
 {
-    tr_cpGetAmountDone(&tor->completion, tab, size);
+    return tor->amountDoneBins(tabs, n_tabs);
 }
 
 static void tr_torrentResetTransferStats(tr_torrent* tor)
@@ -1432,21 +1411,6 @@ static void tr_torrentResetTransferStats(tr_torrent* tor)
     tor->corruptCur = 0;
 
     tr_torrentSetDirty(tor);
-}
-
-void tr_torrentSetHasPiece(tr_torrent* tor, tr_piece_index_t pieceIndex, bool has)
-{
-    TR_ASSERT(tr_isTorrent(tor));
-    TR_ASSERT(pieceIndex < tor->info.pieceCount);
-
-    if (has)
-    {
-        tr_cpPieceAdd(&tor->completion, pieceIndex);
-    }
-    else
-    {
-        tr_cpPieceRem(&tor->completion, pieceIndex);
-    }
 }
 
 /***
@@ -1470,8 +1434,6 @@ static void freeTorrent(tr_torrent* tor)
     tr_peerMgrRemoveTorrent(tor);
 
     tr_announcerRemoveTorrent(session->announcer, tor);
-
-    tr_cpDestruct(&tor->completion);
 
     tr_free(tor->downloadDir);
     tr_free(tor->incompleteDir);
@@ -1519,7 +1481,7 @@ static void torrentStartImpl(void* vtor)
     time_t const now = tr_time();
 
     tor->isRunning = true;
-    tor->completeness = tr_cpGetStatus(&tor->completion);
+    tor->completeness = tor->completion.status();
     tor->startDate = now;
     tor->anyDate = now;
     tr_torrentClearError(tor);
@@ -1996,21 +1958,20 @@ static void torrentCallScript(tr_torrent const* tor, char const* script)
 
     char* const torrent_dir = tr_sys_path_native_separators(tr_strdup(tor->currentDir));
 
-    char* const cmd[] = {
-        tr_strdup(script),
+    char const* const cmd[] = {
+        script,
         nullptr,
     };
 
-    char* const env[] = {
-        tr_strdup_printf("TR_APP_VERSION=%s", SHORT_VERSION_STRING),
-        tr_strdup_printf("TR_TIME_LOCALTIME=%s", ctime_str),
-        tr_strdup_printf("TR_TORRENT_DIR=%s", torrent_dir),
-        tr_strdup_printf("TR_TORRENT_HASH=%s", tor->info.hashString),
-        tr_strdup_printf("TR_TORRENT_ID=%d", tr_torrentId(tor)),
-        tr_strdup_printf("TR_TORRENT_LABELS=%s", buildLabelsString(tor).c_str()),
-        tr_strdup_printf("TR_TORRENT_NAME=%s", tr_torrentName(tor)),
-        tr_strdup_printf("TR_TORRENT_TRACKERS=%s", buildTrackersString(tor).c_str()),
-        nullptr,
+    auto const env = std::map<std::string_view, std::string_view>{
+        { "TR_APP_VERSION"sv, SHORT_VERSION_STRING },
+        { "TR_TIME_LOCALTIME"sv, ctime_str },
+        { "TR_TORRENT_DIR"sv, torrent_dir },
+        { "TR_TORRENT_HASH"sv, tor->info.hashString },
+        { "TR_TORRENT_ID"sv, std::to_string(tr_torrentId(tor)) },
+        { "TR_TORRENT_LABELS"sv, buildLabelsString(tor) },
+        { "TR_TORRENT_NAME"sv, tr_torrentName(tor) },
+        { "TR_TORRENT_TRACKERS"sv, buildTrackersString(tor) },
     };
 
     tr_logAddTorInfo(tor, "Calling script \"%s\"", script);
@@ -2023,8 +1984,6 @@ static void torrentCallScript(tr_torrent const* tor, char const* script)
         tr_error_free(error);
     }
 
-    tr_free_ptrv((void* const*)env);
-    tr_free_ptrv((void* const*)cmd);
     tr_free(torrent_dir);
 }
 
@@ -2032,7 +1991,7 @@ void tr_torrentRecheckCompleteness(tr_torrent* tor)
 {
     auto const lock = tor->unique_lock();
 
-    auto const completeness = tr_cpGetStatus(&tor->completion);
+    auto const completeness = tor->completion.status();
 
     if (completeness != tor->completeness)
     {
@@ -2247,7 +2206,7 @@ static void tr_torrentInitFileDLs(tr_torrent* tor, tr_file_index_t const* files,
         }
     }
 
-    tr_cpInvalidateDND(&tor->completion);
+    tor->completion.invalidateSizeWhenDone();
 }
 
 void tr_torrentSetFileDLs(tr_torrent* tor, tr_file_index_t const* files, tr_file_index_t fileCount, bool doDownload)
@@ -2340,27 +2299,6 @@ void tr_torrentGetBlockLocation(
     *length = tor->countBytesInBlock(block);
 }
 
-tr_block_index_t _tr_block(tr_torrent const* tor, tr_piece_index_t index, uint32_t offset)
-{
-    TR_ASSERT(tr_isTorrent(tor));
-
-    tr_block_index_t ret = 0;
-
-    if (tor->block_size > 0)
-    {
-        ret = index;
-        ret *= tor->info.pieceSize / tor->block_size;
-        ret += offset / tor->block_size;
-    }
-    else
-    {
-        tr_logAddTorErr(tor, "Cannot calculate block number when blockSize is zero");
-        TR_ASSERT(tor->block_size > 0);
-    }
-
-    return ret;
-}
-
 bool tr_torrentReqIsValid(tr_torrent const* tor, tr_piece_index_t index, uint32_t offset, uint32_t length)
 {
     TR_ASSERT(tr_isTorrent(tor));
@@ -2402,20 +2340,32 @@ bool tr_torrentReqIsValid(tr_torrent const* tor, tr_piece_index_t index, uint32_
     return err == 0;
 }
 
-tr_block_range_t tr_torGetFileBlockRange(tr_torrent const* tor, tr_file_index_t const file)
+uint64_t tr_pieceOffset(tr_torrent const* tor, tr_piece_index_t index, uint32_t offset, uint32_t length)
+{
+    TR_ASSERT(tr_isTorrent(tor));
+
+    auto ret = uint64_t{};
+    ret = tor->info.pieceSize;
+    ret *= index;
+    ret += offset;
+    ret += length;
+    return ret;
+}
+
+tr_block_span_t tr_torGetFileBlockSpan(tr_torrent const* tor, tr_file_index_t const file)
 {
     tr_file const* f = &tor->info.files[file];
 
     uint64_t offset = f->offset;
-    tr_block_index_t const first = offset / tor->block_size;
+    tr_block_index_t const begin = offset / tor->block_size;
     if (f->length == 0)
     {
-        return { first, first };
+        return { begin, begin };
     }
 
     offset += f->length - 1;
-    tr_block_index_t const last = offset / tor->block_size;
-    return { first, last };
+    tr_block_index_t const end = 1 + offset / tor->block_size;
+    return { begin, end };
 }
 
 /***
@@ -3077,7 +3027,8 @@ static void tr_torrentPieceCompleted(tr_torrent* tor, tr_piece_index_t pieceInde
     {
         tr_file const* file = &tor->info.files[i];
 
-        if ((file->firstPiece <= pieceIndex) && (pieceIndex <= file->lastPiece) && tr_cpFileIsComplete(&tor->completion, i))
+        if ((file->firstPiece <= pieceIndex) && (pieceIndex <= file->lastPiece) &&
+            tor->completion.hasBlocks(tr_torGetFileBlockSpan(tor, i)))
         {
             tr_torrentFileCompleted(tor, i);
         }
@@ -3089,16 +3040,16 @@ void tr_torrentGotBlock(tr_torrent* tor, tr_block_index_t block)
     TR_ASSERT(tr_isTorrent(tor));
     TR_ASSERT(tr_amInEventThread(tor->session));
 
-    bool const block_is_new = !tr_torrentBlockIsComplete(tor, block);
+    bool const block_is_new = !tor->hasBlock(block);
 
     if (block_is_new)
     {
-        tr_cpBlockAdd(&tor->completion, block);
+        tor->completion.addBlock(block);
         tr_torrentSetDirty(tor);
 
         tr_piece_index_t const p = tor->pieceForBlock(block);
 
-        if (tr_torrentPieceIsComplete(tor, p))
+        if (tor->hasPiece(p))
         {
             if (tor->checkPiece(p))
             {
@@ -3624,7 +3575,7 @@ void tr_torrentRenamePath(
     tor->renamePath(oldpath, newname, callback, callback_user_data);
 }
 
-void tr_torrent::takeMetainfo(tr_metainfo_parsed&& parsed)
+void tr_torrent::swapMetainfo(tr_metainfo_parsed& parsed)
 {
     std::swap(this->info, parsed.info);
     std::swap(this->piece_checksums_, parsed.pieces);

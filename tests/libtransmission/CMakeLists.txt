@@ -3,6 +3,7 @@ add_executable(libtransmission-test
     block-info-test.cc
     blocklist-test.cc
     clients-test.cc
+    completion-test.cc
     copy-test.cc
     crypto-test-ref.h
     crypto-test.cc
@@ -15,9 +16,9 @@ add_executable(libtransmission-test
     makemeta-test.cc
     metainfo-test.cc
     move-test.cc
-    peer-msgs-test.cc
-    peer-mgr-wishlist-test.cc
     peer-mgr-active-requests-test.cc
+    peer-mgr-wishlist-test.cc
+    peer-msgs-test.cc
     quark-test.cc
     rename-test.cc
     rpc-test.cc
