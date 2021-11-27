@@ -852,20 +852,37 @@ on_drag_data_received (GtkWidget         * widget          UNUSED,
                        guint               time_,
                        gpointer            gdata)
 {
-  guint i;
   char ** uris = gtk_selection_data_get_uris (selection_data);
-  const guint file_count = g_strv_length (uris);
-  GSList * files = NULL;
 
-  for (i=0; i<file_count; ++i)
-    files = g_slist_prepend (files, g_file_new_for_uri (uris[i]));
+  if (uris)
+    {
+      guint i;
+      const guint file_count = g_strv_length (uris);
+      GSList * files = NULL;
 
-  open_files (files, gdata);
+      for (i=0; i<file_count; ++i)
+        files = g_slist_prepend (files, g_file_new_for_uri (uris[i]));
 
-  /* cleanup */
-  g_slist_foreach (files, (GFunc)g_object_unref, NULL);
-  g_slist_free (files);
-  g_strfreev (uris);
+      open_files (files, gdata);
+
+      /* cleanup */
+      g_slist_foreach (files, (GFunc)g_object_unref, NULL);
+      g_slist_free (files);
+      g_strfreev (uris);
+    }
+  else
+    {
+      guchar * text = gtk_selection_data_get_text (selection_data);
+      gchar * url = g_strstrip ((gchar *)text);
+
+      if (url)
+        {
+          struct cbdata * cbdata = gdata;
+          gtr_core_add_from_url (cbdata->core, url);
+        }
+
+      g_free (text);
+    }
 
   gtk_drag_finish (drag_context, true, FALSE, time_);
 }
@@ -892,6 +909,7 @@ main_window_setup (struct cbdata * cbdata, GtkWindow * wind)
   w = GTK_WIDGET (wind);
   gtk_drag_dest_set (w, GTK_DEST_DEFAULT_ALL, NULL, 0, GDK_ACTION_COPY);
   gtk_drag_dest_add_uri_targets (w);
+  gtk_drag_dest_add_text_targets (w); /* links dragged from browsers are text */
   g_signal_connect (w, "drag-data-received", G_CALLBACK (on_drag_data_received), cbdata);
 }
 
